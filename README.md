@@ -189,8 +189,8 @@ If you want to generate results for all PDFs in a folder and ensure every result
 
 ```bash
 python3 scripts/regenerate_test_results.py \
-  --pdf_dir /path/to/pdf_dir \
-  --output_dir /path/to/output_dir
+  --pdf_dir tests/pdfs \
+  --output_dir tests/results
 ```
 
 For the built-in test fixtures in this repo:
@@ -203,38 +203,17 @@ python3 scripts/regenerate_test_results.py
 
 Once you have generated PageIndex tree structure JSON files, you can query a folder with `search_pageindex.py`:
 
-```bash
-python3 search_pageindex.py \
-  --tree_dir /path/to/output_dir \
-  --query "论文使用了什么方法"
-```
-
-For the built-in test results in this repo:
-
-```bash
-python3 search_pageindex.py \
-  --tree_dir tests/results \
-  --query "论文使用了什么方法"
-```
 
 `search_pageindex.py` first builds a document-description catalog, asks the LLM to select the most relevant documents, and then runs tree search only on the selected files. By default, the catalog is stored at `tests/results/.pageindex_doc_catalog.json`.
 
-You can limit how many documents enter the tree-search stage:
+
 
 ```bash
 python3 search_pageindex.py \
   --tree_dir tests/results \
   --query "编辑流中的三个操作是怎么运行的" \
-  --doc_top_k 5
-```
-
-If you want to rebuild the document-description catalog from scratch:
-
-```bash
-python3 search_pageindex.py \
-  --tree_dir tests/results \
-  --query "论文使用了什么方法" \
-  --rebuild_catalog
+  --doc_top_k 5 \
+  --max_concurrency 10
 ```
 
 <details>

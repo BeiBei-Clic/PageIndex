@@ -4,6 +4,7 @@ PageIndex 检索脚本
 使用生成的树结构进行推理检索
 """
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -15,10 +16,11 @@ import pageindex.utils as utils
 from pageindex.prompt import ANSWER_PROMPT
 from pageindex.prompt import DOC_SELECTION_PROMPT
 from pageindex.prompt import TREE_SEARCH_PROMPT
-from pageindex.utils import llm_completion, extract_json
+from pageindex.utils import extract_json, llm_acompletion, llm_completion
 
 CATALOG_VERSION = 1
 DEFAULT_DOC_TOP_K = 10
+DEFAULT_MAX_CONCURRENCY = 10
 
 
 def load_tree_structure(json_path):
@@ -32,20 +34,6 @@ def load_tree_structure(json_path):
     if isinstance(tree, list) and len(tree) > 0:
         return tree[0]
     return tree
-
-
-def list_tree_paths(dir_path, pattern='*_structure.json'):
-    """列出目录中的树结构文件。"""
-    path = Path(dir_path)
-    if not path.exists():
-        raise FileNotFoundError(f"未找到目录: {path}")
-    if not path.is_dir():
-        raise NotADirectoryError(f"不是目录: {path}")
-
-    paths = sorted(path.glob(pattern))
-    if not paths:
-        raise FileNotFoundError(f"目录中未找到匹配 {pattern} 的树结构文件: {path}")
-    return paths
 
 
 def normalize_text(text):
@@ -102,23 +90,6 @@ def get_doc_description(tree, tree_path, model):
     return build_fallback_doc_description(tree, tree_path)
 
 
-def build_doc_catalog_entry(tree_path, model):
-    """为单个树结构文件构建目录索引条目。"""
-    tree = load_tree_structure(tree_path)
-    stat = tree_path.stat()
-    doc_name = tree.get('doc_name') if isinstance(tree, dict) else None
-    doc_name = normalize_text(doc_name) or tree_path.name
-    doc_description = get_doc_description(tree, tree_path, model)
-
-    return {
-        'tree_path': str(tree_path),
-        'doc_name': doc_name,
-        'doc_description': doc_description,
-        'mtime_ns': stat.st_mtime_ns,
-        'size': stat.st_size,
-    }
-
-
 def load_doc_catalog(catalog_path):
     """加载文档目录索引。"""
     if not catalog_path.exists():
@@ -141,22 +112,19 @@ def load_doc_catalog(catalog_path):
         for entry in entries
         if isinstance(entry, dict) and entry.get('tree_path')
     }
-
-
-def save_doc_catalog(catalog_path, entries):
-    """保存文档目录索引。"""
-    catalog_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        'version': CATALOG_VERSION,
-        'entries': entries,
-    }
-    with open(catalog_path, 'w', encoding='utf-8') as f:
-        json.dump(payload, f, indent=2, ensure_ascii=False)
-
-
 def sync_doc_catalog(tree_dir, catalog_path, model, rebuild=False):
     """同步目录中的文档索引信息。"""
-    tree_paths = list_tree_paths(tree_dir)
+    tree_dir = Path(tree_dir)
+    catalog_path = Path(catalog_path)
+    if not tree_dir.exists():
+        raise FileNotFoundError(f"未找到目录: {tree_dir}")
+    if not tree_dir.is_dir():
+        raise NotADirectoryError(f"不是目录: {tree_dir}")
+
+    tree_paths = sorted(tree_dir.glob('*_structure.json'))
+    if not tree_paths:
+        raise FileNotFoundError(f"目录中未找到匹配 *_structure.json 的树结构文件: {tree_dir}")
+
     cached_entries = {} if rebuild else load_doc_catalog(catalog_path)
     entries = []
     changed = rebuild
@@ -177,7 +145,15 @@ def sync_doc_catalog(tree_dir, catalog_path, model, rebuild=False):
             continue
 
         print(f"🧾 更新文档描述: {tree_path.name}")
-        entries.append(build_doc_catalog_entry(tree_path, model))
+        tree = load_tree_structure(tree_path)
+        doc_name = tree.get('doc_name') if isinstance(tree, dict) else None
+        entries.append({
+            'tree_path': str(tree_path),
+            'doc_name': normalize_text(doc_name) or tree_path.name,
+            'doc_description': get_doc_description(tree, tree_path, model),
+            'mtime_ns': stat.st_mtime_ns,
+            'size': stat.st_size,
+        })
         changed = True
 
     if len(entries) != len(cached_entries):
@@ -186,7 +162,12 @@ def sync_doc_catalog(tree_dir, catalog_path, model, rebuild=False):
     entries.sort(key=lambda item: item['tree_path'])
 
     if changed:
-        save_doc_catalog(catalog_path, entries)
+        catalog_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(catalog_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'version': CATALOG_VERSION,
+                'entries': entries,
+            }, f, indent=2, ensure_ascii=False)
 
     return entries
 
@@ -198,8 +179,8 @@ def get_structure_nodes(tree):
     return tree
 
 
-def tree_search(query, tree, model):
-    """使用 LLM 在树结构中搜索相关节点"""
+async def tree_search_async(query, tree, model):
+    """使用异步 LLM 调用在树结构中搜索相关节点。"""
     structure = get_structure_nodes(tree)
 
     # 移除 text 字段以减少提示词长度
@@ -218,8 +199,7 @@ def tree_search(query, tree, model):
         doc_info_text=doc_info_text,
         tree_structure_json=json.dumps(tree_without_text, indent=2, ensure_ascii=False),
     )
-
-    result = llm_completion(model, search_prompt)
+    result = await llm_acompletion(model, search_prompt)
     return extract_json(result)
 
 
@@ -265,10 +245,8 @@ def select_relevant_documents(query, catalog_entries, model, doc_top_k):
             break
 
     return parsed, selected_entries
-
-
-def create_node_mapping(tree):
-    """创建从 node_id 到节点的映射"""
+def get_relevant_content(node_list, tree):
+    """从相关节点中提取内容"""
     node_map = {}
 
     def traverse(node):
@@ -285,14 +263,6 @@ def create_node_mapping(tree):
                 traverse(item)
 
     traverse(tree)
-    return node_map
-
-
-def get_relevant_content(node_list, tree):
-    """从相关节点中提取内容"""
-    # 创建节点映射
-    node_map = create_node_mapping(tree)
-
     relevant_nodes = []
     for node_id in node_list:
         if node_id in node_map:
@@ -310,30 +280,52 @@ def get_relevant_content(node_list, tree):
     return relevant_nodes
 
 
-def search_single_tree(query, tree, model):
-    """对单个树结构执行检索并提取节点内容。"""
-    search_result = tree_search(query, tree, model)
+async def search_single_tree_async(entry, query, model, semaphore):
+    """对单个树结构异步执行检索并提取节点内容。"""
+    tree_path = Path(entry['tree_path'])
+    tree = load_tree_structure(tree_path)
+    source_name = entry['doc_name']
+
+    async with semaphore:
+        search_result = await tree_search_async(query, tree, model)
+
     if 'node_list' not in search_result:
-        return search_result, []
+        return {
+            'path': tree_path,
+            'doc_name': source_name,
+            'search_result': search_result,
+            'relevant_nodes': [],
+        }
 
     relevant_nodes = get_relevant_content(search_result['node_list'], tree)
-    return search_result, relevant_nodes
+    for node in relevant_nodes:
+        node['doc_name'] = source_name
+        node['tree_path'] = str(tree_path)
+
+    return {
+        'path': tree_path,
+        'doc_name': source_name,
+        'search_result': search_result,
+        'relevant_nodes': relevant_nodes,
+    }
 
 
-def search_tree_directory(query, selected_entries, model):
-    """对筛选出的多个树结构逐个执行检索。"""
+async def search_tree_directory(query, selected_entries, model, max_concurrency):
+    """对筛选出的多个树结构并发执行检索。"""
+    semaphore = asyncio.Semaphore(max_concurrency)
+    tasks = [
+        search_single_tree_async(entry, query, model, semaphore)
+        for entry in selected_entries
+    ]
+    results = await asyncio.gather(*tasks)
     all_results = []
 
-    for entry in selected_entries:
-        tree_path = Path(entry['tree_path'])
-        tree = load_tree_structure(tree_path)
-        source_name = entry['doc_name']
+    for result in results:
+        print(f"\n📄 检索文档: {result['doc_name']}")
 
-        print(f"\n📄 检索文档: {source_name}")
-        search_result, relevant_nodes = search_single_tree(query, tree, model)
-
+        search_result = result['search_result']
         if 'node_list' not in search_result:
-            print(f"❌ 搜索失败，无法解析结果: {tree_path}")
+            print(f"❌ 搜索失败，无法解析结果: {result['path']}")
             print(f"原始结果: {search_result}")
             continue
 
@@ -341,34 +333,9 @@ def search_tree_directory(query, selected_entries, model):
         if 'thinking' in search_result:
             print(f"思考过程: {search_result['thinking'][:200]}...")
 
-        for node in relevant_nodes:
-            node['doc_name'] = source_name
-            node['tree_path'] = str(tree_path)
-
-        all_results.append({
-            'path': tree_path,
-            'tree': tree,
-            'search_result': search_result,
-            'relevant_nodes': relevant_nodes,
-        })
+        all_results.append(result)
 
     return all_results
-
-
-def generate_answer(query, context, model):
-    """基于检索到的内容生成答案"""
-    answer_prompt = ANSWER_PROMPT.format(query=query, context=context)
-
-    return llm_completion(model, answer_prompt)
-
-
-def format_node_context(node):
-    """将节点格式化为适合问答的上下文块。"""
-    doc_prefix = ""
-    if node.get('doc_name'):
-        doc_prefix = f"[文档: {node['doc_name']}] "
-    header = f"{doc_prefix}[{node['node_id']}] {node['title']} (页 {node['page']})"
-    return f"{header}\n{node['content']}"
 
 
 def build_context(relevant_nodes, max_context):
@@ -377,7 +344,8 @@ def build_context(relevant_nodes, max_context):
     total_length = 0
 
     for node in relevant_nodes:
-        formatted_node = format_node_context(node)
+        doc_prefix = f"[文档: {node['doc_name']}] " if node.get('doc_name') else ""
+        formatted_node = f"{doc_prefix}[{node['node_id']}] {node['title']} (页 {node['page']})\n{node['content']}"
         if total_length + len(formatted_node) > max_context:
             remaining = max_context - total_length
             if remaining > 0:
@@ -399,6 +367,8 @@ def main():
                       help='使用的 LLM 模型')
     parser.add_argument('--doc_top_k', type=int, default=DEFAULT_DOC_TOP_K,
                       help='目录检索时，进入树搜索的最大文档数')
+    parser.add_argument('--max_concurrency', type=int, default=DEFAULT_MAX_CONCURRENCY,
+                      help='节点检索阶段的最大并发文档数')
     parser.add_argument('--catalog_path', type=str, default=None,
                       help='目录检索时使用的文档描述 catalog 路径')
     parser.add_argument('--rebuild_catalog', action='store_true',
@@ -409,6 +379,8 @@ def main():
     args = parser.parse_args()
     if args.doc_top_k <= 0:
         raise ValueError("--doc_top_k 必须大于 0")
+    if args.max_concurrency <= 0:
+        raise ValueError("--max_concurrency 必须大于 0")
 
     print(f"🔍 检索问题: {args.query}")
     tree_dir = Path(args.tree_dir)
@@ -449,8 +421,15 @@ def main():
     for i, entry in enumerate(selected_entries, 1):
         print(f"{i}. {entry['doc_name']} ({entry['tree_path']})")
 
-    print("\n正在搜索入选文档中的相关节点...")
-    search_results = search_tree_directory(args.query, selected_entries, args.model)
+    print(f"\n正在并发搜索入选文档中的相关节点 (max_concurrency={args.max_concurrency})...")
+    search_results = asyncio.run(
+        search_tree_directory(
+            args.query,
+            selected_entries,
+            args.model,
+            args.max_concurrency,
+        )
+    )
     relevant_nodes = []
     total_node_hits = 0
 
@@ -477,7 +456,7 @@ def main():
 
     # 生成答案
     print(f"\n💡 正在生成答案...")
-    answer = generate_answer(args.query, context, args.model)
+    answer = llm_completion(args.model, ANSWER_PROMPT.format(query=args.query, context=context))
 
     print("\n" + "="*60)
     print("答案:")
