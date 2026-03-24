@@ -199,17 +199,9 @@ For the built-in test fixtures in this repo:
 python3 scripts/regenerate_test_results.py
 ```
 
-### 4. Query a generated tree structure
+### 4. Query generated tree structures in a folder
 
-Once you have a PageIndex tree structure JSON file, you can query it with `search_pageindex.py`:
-
-```bash
-python3 search_pageindex.py \
-  --tree_path tests/results/scutthesis_structure.json \
-  --query "论文使用了什么方法"
-```
-
-If you want to search across all generated tree structures in a folder, use `--tree_dir`:
+Once you have generated PageIndex tree structure JSON files, you can query a folder with `search_pageindex.py`:
 
 ```bash
 python3 search_pageindex.py \
@@ -225,14 +217,14 @@ python3 search_pageindex.py \
   --query "论文使用了什么方法"
 ```
 
-In folder mode, `search_pageindex.py` first builds a document-description catalog, asks the LLM to select the most relevant documents, and then runs tree search only on the selected files. By default, the catalog is stored at `tests/results/.pageindex_doc_catalog.json`.
+`search_pageindex.py` first builds a document-description catalog, asks the LLM to select the most relevant documents, and then runs tree search only on the selected files. By default, the catalog is stored at `tests/results/.pageindex_doc_catalog.json`.
 
 You can limit how many documents enter the tree-search stage:
 
 ```bash
 python3 search_pageindex.py \
   --tree_dir tests/results \
-  --query "论文使用了什么方法" \
+  --query "编辑流中的三个操作是怎么运行的" \
   --doc_top_k 5
 ```
 

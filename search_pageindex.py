@@ -12,6 +12,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import pageindex.utils as utils
+from pageindex.prompt import ANSWER_PROMPT
+from pageindex.prompt import DOC_SELECTION_PROMPT
+from pageindex.prompt import TREE_SEARCH_PROMPT
 from pageindex.utils import llm_completion, extract_json
 
 CATALOG_VERSION = 1
@@ -210,22 +213,11 @@ def tree_search(query, tree, model):
             doc_info.append(f"文档描述: {tree['doc_description']}")
     doc_info_text = "\n".join(doc_info)
 
-    search_prompt = f"""你是一个文档检索专家。给定一个问题和文档的树结构，你的任务是找到所有可能包含答案的节点。
-
-问题: {query}
-
-{doc_info_text}
-
-文档树结构:
-{json.dumps(tree_without_text, indent=2, ensure_ascii=False)}
-
-请以以下 JSON 格式回复:
-{{
-    "thinking": "<你的思考过程，解释哪些节点与问题相关>",
-    "node_list": ["node_id_1", "node_id_2", ..., "node_id_n"]
-}}
-
-直接返回最终的 JSON 结构。不要输出其他内容。"""
+    search_prompt = TREE_SEARCH_PROMPT.format(
+        query=query,
+        doc_info_text=doc_info_text,
+        tree_structure_json=json.dumps(tree_without_text, indent=2, ensure_ascii=False),
+    )
 
     result = llm_completion(model, search_prompt)
     return extract_json(result)
@@ -246,24 +238,11 @@ def select_relevant_documents(query, catalog_entries, model, doc_top_k):
         documents.append(doc_item)
         entry_map[doc_id] = entry
 
-    selection_prompt = f"""你是一个多文档检索助手。给定一个问题和一组文档描述，请挑选最可能包含答案的文档。
-
-问题: {query}
-
-文档列表:
-{json.dumps(documents, indent=2, ensure_ascii=False)}
-
-请返回 JSON，格式如下:
-{{
-    "thinking": "<你的筛选思路>",
-    "doc_list": ["doc_0001", "doc_0002"]
-}}
-
-要求:
-1. `doc_list` 按相关性从高到低排序。
-2. 最多返回 {doc_top_k} 个文档。
-3. 如果没有相关文档，返回空列表。
-4. 只返回最终 JSON，不要输出其他内容。"""
+    selection_prompt = DOC_SELECTION_PROMPT.format(
+        query=query,
+        documents_json=json.dumps(documents, indent=2, ensure_ascii=False),
+        doc_top_k=doc_top_k,
+    )
 
     result = llm_completion(model, selection_prompt)
     parsed = extract_json(result)
@@ -378,14 +357,7 @@ def search_tree_directory(query, selected_entries, model):
 
 def generate_answer(query, context, model):
     """基于检索到的内容生成答案"""
-    answer_prompt = f"""基于以下上下文回答问题。如果上下文中没有相关信息，请明确说明。
-
-问题: {query}
-
-上下文:
-{context}
-
-请提供清晰、简洁的答案，仅基于提供的上下文。"""
+    answer_prompt = ANSWER_PROMPT.format(query=query, context=context)
 
     return llm_completion(model, answer_prompt)
 
@@ -418,11 +390,8 @@ def build_context(relevant_nodes, max_context):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='PageIndex 检索脚本')
-    source_group = parser.add_mutually_exclusive_group(required=True)
-    source_group.add_argument('--tree_path', type=str,
-                      help='PageIndex 树结构 JSON 文件路径')
-    source_group.add_argument('--tree_dir', type=str,
+    parser = argparse.ArgumentParser(description='PageIndex 目录检索脚本')
+    parser.add_argument('--tree_dir', type=str, required=True,
                       help='包含多个 PageIndex 树结构 JSON 文件的目录')
     parser.add_argument('--query', type=str, required=True,
                       help='检索问题')
@@ -442,72 +411,54 @@ def main():
         raise ValueError("--doc_top_k 必须大于 0")
 
     print(f"🔍 检索问题: {args.query}")
+    tree_dir = Path(args.tree_dir)
+    catalog_path = Path(args.catalog_path) if args.catalog_path else tree_dir / '.pageindex_doc_catalog.json'
 
-    if args.tree_path:
-        print(f"📄 加载树结构: {args.tree_path}")
-        tree = load_tree_structure(args.tree_path)
-        print("✓ 树结构加载完成\n")
+    print(f"📁 加载树结构目录: {tree_dir}")
+    catalog_entries = sync_doc_catalog(
+        tree_dir=tree_dir,
+        catalog_path=catalog_path,
+        model=args.model,
+        rebuild=args.rebuild_catalog,
+    )
+    print(f"✓ 文档 catalog 已准备完成，共 {len(catalog_entries)} 个文件")
+    print(f"📚 Catalog 路径: {catalog_path}\n")
 
-        print("正在搜索相关节点...")
-        search_result, relevant_nodes = search_single_tree(args.query, tree, args.model)
+    print("正在筛选相关文档...")
+    doc_selection_result, selected_entries = select_relevant_documents(
+        args.query,
+        catalog_entries,
+        args.model,
+        args.doc_top_k,
+    )
 
-        if 'node_list' not in search_result:
-            print("❌ 搜索失败，无法解析结果")
-            print(f"原始结果: {search_result}")
-            return
+    raw_doc_list = doc_selection_result.get('doc_list', doc_selection_result.get('answer', []))
+    if not isinstance(raw_doc_list, list):
+        raw_doc_list = []
 
-        print(f"\n📊 检索结果 (找到 {len(search_result['node_list'])} 个相关节点):")
-        if 'thinking' in search_result:
-            print(f"思考过程: {search_result['thinking'][:200]}...\n")
-    else:
-        tree_dir = Path(args.tree_dir)
-        catalog_path = Path(args.catalog_path) if args.catalog_path else tree_dir / '.pageindex_doc_catalog.json'
+    print(f"\n📚 文档筛选结果 (从 {len(catalog_entries)} 个文档中选择 {len(selected_entries)} 个):")
+    if 'thinking' in doc_selection_result:
+        print(f"思考过程: {doc_selection_result['thinking'][:200]}...\n")
 
-        print(f"📁 加载树结构目录: {tree_dir}")
-        catalog_entries = sync_doc_catalog(
-            tree_dir=tree_dir,
-            catalog_path=catalog_path,
-            model=args.model,
-            rebuild=args.rebuild_catalog,
-        )
-        print(f"✓ 文档 catalog 已准备完成，共 {len(catalog_entries)} 个文件")
-        print(f"📚 Catalog 路径: {catalog_path}\n")
+    if not selected_entries:
+        print("❌ 文档级筛选未命中任何相关文档。")
+        if raw_doc_list:
+            print(f"模型返回的文档标识无效: {raw_doc_list}")
+        return
 
-        print("正在筛选相关文档...")
-        doc_selection_result, selected_entries = select_relevant_documents(
-            args.query,
-            catalog_entries,
-            args.model,
-            args.doc_top_k,
-        )
+    for i, entry in enumerate(selected_entries, 1):
+        print(f"{i}. {entry['doc_name']} ({entry['tree_path']})")
 
-        raw_doc_list = doc_selection_result.get('doc_list', doc_selection_result.get('answer', []))
-        if not isinstance(raw_doc_list, list):
-            raw_doc_list = []
+    print("\n正在搜索入选文档中的相关节点...")
+    search_results = search_tree_directory(args.query, selected_entries, args.model)
+    relevant_nodes = []
+    total_node_hits = 0
 
-        print(f"\n📚 文档筛选结果 (从 {len(catalog_entries)} 个文档中选择 {len(selected_entries)} 个):")
-        if 'thinking' in doc_selection_result:
-            print(f"思考过程: {doc_selection_result['thinking'][:200]}...\n")
+    for result in search_results:
+        total_node_hits += len(result['search_result'].get('node_list', []))
+        relevant_nodes.extend(result['relevant_nodes'])
 
-        if not selected_entries:
-            print("❌ 文档级筛选未命中任何相关文档。")
-            if raw_doc_list:
-                print(f"模型返回的文档标识无效: {raw_doc_list}")
-            return
-
-        for i, entry in enumerate(selected_entries, 1):
-            print(f"{i}. {entry['doc_name']} ({entry['tree_path']})")
-
-        print("\n正在搜索入选文档中的相关节点...")
-        search_results = search_tree_directory(args.query, selected_entries, args.model)
-        relevant_nodes = []
-        total_node_hits = 0
-
-        for result in search_results:
-            total_node_hits += len(result['search_result'].get('node_list', []))
-            relevant_nodes.extend(result['relevant_nodes'])
-
-        print(f"\n📊 目录检索结果 (共找到 {total_node_hits} 个相关节点，提取 {len(relevant_nodes)} 个有效上下文节点):")
+    print(f"\n📊 目录检索结果 (共找到 {total_node_hits} 个相关节点，提取 {len(relevant_nodes)} 个有效上下文节点):")
 
     if not relevant_nodes:
         print("❌ 未能从检索结果中提取任何节点内容。")
