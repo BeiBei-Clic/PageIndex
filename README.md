@@ -161,16 +161,10 @@ CHATGPT_API_KEY=your_openai_key_here
 python3 run_pageindex.py --pdf_path /path/to/your/document.pdf
 ```
 
-For example, you can generate a tree structure for the sample thesis PDF in `tests/pdfs`:
-
-```bash
-python3 run_pageindex.py --pdf_path tests/pdfs/scutthesis.pdf
-```
-
 The generated tree structure will be saved to:
 
 ```bash
-results/scutthesis_structure.json
+tests/results/<document_name>_structure.json
 ```
 
 <details>
@@ -196,6 +190,14 @@ Once you have a PageIndex tree structure JSON file, you can query it with `searc
 ```bash
 python3 search_pageindex.py \
   --tree_path tests/results/scutthesis_structure.json \
+  --query "论文使用了什么方法"
+```
+
+If you want to search across all tree structures in a folder, use `--tree_dir`:
+
+```bash
+python3 search_pageindex.py \
+  --tree_dir tests/results \
   --query "论文使用了什么方法"
 ```
 

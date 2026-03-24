@@ -28,6 +28,27 @@ def load_tree_structure(json_path):
     return tree
 
 
+def load_tree_structures_from_dir(dir_path, pattern='*_structure.json'):
+    """从目录中加载多个 PageIndex 树结构文件。"""
+    path = Path(dir_path)
+    if not path.exists():
+        raise FileNotFoundError(f"未找到目录: {path}")
+    if not path.is_dir():
+        raise NotADirectoryError(f"不是目录: {path}")
+
+    tree_paths = sorted(path.glob(pattern))
+    if not tree_paths:
+        raise FileNotFoundError(f"目录中未找到匹配 {pattern} 的树结构文件: {path}")
+
+    tree_entries = []
+    for tree_path in tree_paths:
+        tree_entries.append({
+            'path': tree_path,
+            'tree': load_tree_structure(tree_path),
+        })
+    return tree_entries
+
+
 def get_structure_nodes(tree):
     """提取真正的树节点列表，兼容 PageIndex 标准输出格式。"""
     if isinstance(tree, dict) and 'structure' in tree:
@@ -114,6 +135,51 @@ def get_relevant_content(node_list, tree):
     return relevant_nodes
 
 
+def search_single_tree(query, tree, model):
+    """对单个树结构执行检索并提取节点内容。"""
+    search_result = tree_search(query, tree, model)
+    if 'node_list' not in search_result:
+        return search_result, []
+
+    relevant_nodes = get_relevant_content(search_result['node_list'], tree)
+    return search_result, relevant_nodes
+
+
+def search_tree_directory(query, tree_entries, model):
+    """对目录中的多个树结构逐个执行检索。"""
+    all_results = []
+
+    for entry in tree_entries:
+        tree = entry['tree']
+        source_name = tree.get('doc_name') if isinstance(tree, dict) else None
+        source_name = source_name or entry['path'].name
+
+        print(f"\n📄 检索文档: {source_name}")
+        search_result, relevant_nodes = search_single_tree(query, tree, model)
+
+        if 'node_list' not in search_result:
+            print(f"❌ 搜索失败，无法解析结果: {entry['path']}")
+            print(f"原始结果: {search_result}")
+            continue
+
+        print(f"找到 {len(search_result['node_list'])} 个相关节点")
+        if 'thinking' in search_result:
+            print(f"思考过程: {search_result['thinking'][:200]}...")
+
+        for node in relevant_nodes:
+            node['doc_name'] = source_name
+            node['tree_path'] = str(entry['path'])
+
+        all_results.append({
+            'path': entry['path'],
+            'tree': tree,
+            'search_result': search_result,
+            'relevant_nodes': relevant_nodes,
+        })
+
+    return all_results
+
+
 def generate_answer(query, context, model):
     """基于检索到的内容生成答案"""
     answer_prompt = f"""基于以下上下文回答问题。如果上下文中没有相关信息，请明确说明。
@@ -130,14 +196,38 @@ def generate_answer(query, context, model):
 
 def format_node_context(node):
     """将节点格式化为适合问答的上下文块。"""
-    header = f"[{node['node_id']}] {node['title']} (页 {node['page']})"
+    doc_prefix = ""
+    if node.get('doc_name'):
+        doc_prefix = f"[文档: {node['doc_name']}] "
+    header = f"{doc_prefix}[{node['node_id']}] {node['title']} (页 {node['page']})"
     return f"{header}\n{node['content']}"
+
+
+def build_context(relevant_nodes, max_context):
+    """按最大长度限制拼接上下文。"""
+    context_parts = []
+    total_length = 0
+
+    for node in relevant_nodes:
+        formatted_node = format_node_context(node)
+        if total_length + len(formatted_node) > max_context:
+            remaining = max_context - total_length
+            if remaining > 0:
+                context_parts.append(formatted_node[:remaining] + "...")
+            break
+        context_parts.append(formatted_node)
+        total_length += len(formatted_node)
+
+    return "\n\n---\n\n".join(context_parts)
 
 
 def main():
     parser = argparse.ArgumentParser(description='PageIndex 检索脚本')
-    parser.add_argument('--tree_path', type=str, required=True,
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument('--tree_path', type=str,
                       help='PageIndex 树结构 JSON 文件路径')
+    source_group.add_argument('--tree_dir', type=str,
+                      help='包含多个 PageIndex 树结构 JSON 文件的目录')
     parser.add_argument('--query', type=str, required=True,
                       help='检索问题')
     parser.add_argument('--model', type=str, default='deepseek/deepseek-chat',
@@ -147,51 +237,50 @@ def main():
 
     args = parser.parse_args()
 
-    # 加载树结构
-    print(f"📄 加载树结构: {args.tree_path}")
-    tree = load_tree_structure(args.tree_path)
-    print("✓ 树结构加载完成\n")
-
-    # 树搜索
     print(f"🔍 检索问题: {args.query}")
-    print("正在搜索相关节点...")
-    search_result = tree_search(args.query, tree, args.model)
 
-    if 'node_list' not in search_result:
-        print("❌ 搜索失败，无法解析结果")
-        print(f"原始结果: {search_result}")
-        return
+    if args.tree_path:
+        print(f"📄 加载树结构: {args.tree_path}")
+        tree = load_tree_structure(args.tree_path)
+        print("✓ 树结构加载完成\n")
 
-    print(f"\n📊 检索结果 (找到 {len(search_result['node_list'])} 个相关节点):")
-    if 'thinking' in search_result:
-        print(f"思考过程: {search_result['thinking'][:200]}...\n")
+        print("正在搜索相关节点...")
+        search_result, relevant_nodes = search_single_tree(args.query, tree, args.model)
 
-    # 获取相关内容
-    relevant_nodes = get_relevant_content(search_result['node_list'], tree)
+        if 'node_list' not in search_result:
+            print("❌ 搜索失败，无法解析结果")
+            print(f"原始结果: {search_result}")
+            return
+
+        print(f"\n📊 检索结果 (找到 {len(search_result['node_list'])} 个相关节点):")
+        if 'thinking' in search_result:
+            print(f"思考过程: {search_result['thinking'][:200]}...\n")
+    else:
+        print(f"📁 加载树结构目录: {args.tree_dir}")
+        tree_entries = load_tree_structures_from_dir(args.tree_dir)
+        print(f"✓ 树结构加载完成，共 {len(tree_entries)} 个文件\n")
+        print("正在搜索相关节点...")
+
+        search_results = search_tree_directory(args.query, tree_entries, args.model)
+        relevant_nodes = []
+        total_node_hits = 0
+
+        for result in search_results:
+            total_node_hits += len(result['search_result'].get('node_list', []))
+            relevant_nodes.extend(result['relevant_nodes'])
+
+        print(f"\n📊 目录检索结果 (共找到 {total_node_hits} 个相关节点，提取 {len(relevant_nodes)} 个有效上下文节点):")
 
     if not relevant_nodes:
-        print("❌ 已找到相关 node_id，但未能从树结构中提取任何节点内容。")
+        print("❌ 未能从检索结果中提取任何节点内容。")
         print("请检查 JSON 是否使用了标准的 `structure` 根字段，以及节点是否包含 `text` 或 `summary`。")
         return
 
     for i, node in enumerate(relevant_nodes, 1):
-        print(f"{i}. [{node['node_id']}] 页 {node['page']}: {node['title']}")
+        doc_prefix = f"[{node['doc_name']}] " if node.get('doc_name') else ""
+        print(f"{i}. {doc_prefix}[{node['node_id']}] 页 {node['page']}: {node['title']}")
 
-    # 组合上下文
-    context_parts = []
-    total_length = 0
-    for node in relevant_nodes:
-        formatted_node = format_node_context(node)
-        if total_length + len(formatted_node) > args.max_context:
-            # 截断最后一个节点以适应最大长度
-            remaining = args.max_context - total_length
-            if remaining > 0:
-                context_parts.append(formatted_node[:remaining] + "...")
-            break
-        context_parts.append(formatted_node)
-        total_length += len(formatted_node)
-
-    context = "\n\n---\n\n".join(context_parts)
+    context = build_context(relevant_nodes, args.max_context)
 
     if not context.strip():
         print("❌ 检索到了相关节点，但拼接后的上下文为空，已停止调用模型。")

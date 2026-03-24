@@ -5,6 +5,8 @@ from pageindex import *
 from pageindex.page_index_md import md_to_tree
 from pageindex.utils import ConfigLoader
 
+DEFAULT_OUTPUT_DIR = './tests/results'
+
 if __name__ == "__main__":
     # Set up argument parser
     parser = argparse.ArgumentParser(description='Process PDF or Markdown document and generate structure')
@@ -70,7 +72,7 @@ if __name__ == "__main__":
         
         # Save results
         pdf_name = os.path.splitext(os.path.basename(args.pdf_path))[0]    
-        output_dir = './results'
+        output_dir = DEFAULT_OUTPUT_DIR
         output_file = f'{output_dir}/{pdf_name}_structure.json'
         os.makedirs(output_dir, exist_ok=True)
         
@@ -124,7 +126,7 @@ if __name__ == "__main__":
         
         # Save results
         md_name = os.path.splitext(os.path.basename(args.md_path))[0]    
-        output_dir = './results'
+        output_dir = DEFAULT_OUTPUT_DIR
         output_file = f'{output_dir}/{md_name}_structure.json'
         os.makedirs(output_dir, exist_ok=True)
         
