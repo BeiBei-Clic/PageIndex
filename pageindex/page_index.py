@@ -682,11 +682,18 @@ def process_none_page_numbers(toc_items, page_list, start_index=1, model=None):
                     continue
 
             item_copy = copy.deepcopy(item)
-            del item_copy['page']
+            item_copy.pop('page', None)
+            if not page_contents:
+                continue
+
             result = add_page_number_to_toc(page_contents, item_copy, model)
-            if isinstance(result[0]['physical_index'], str) and result[0]['physical_index'].startswith('<physical_index'):
-                item['physical_index'] = int(result[0]['physical_index'].split('_')[-1].rstrip('>').strip())
-                del item['page']
+            if not isinstance(result, list) or not result:
+                continue
+
+            physical_index = result[0].get('physical_index')
+            if isinstance(physical_index, str) and physical_index.startswith('<physical_index'):
+                item['physical_index'] = int(physical_index.split('_')[-1].rstrip('>').strip())
+                item.pop('page', None)
     
     return toc_items
 

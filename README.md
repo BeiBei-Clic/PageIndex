@@ -167,6 +167,8 @@ The generated tree structure will be saved to:
 tests/results/<document_name>_structure.json
 ```
 
+By default, the generated JSON now includes `doc_description` in addition to the tree structure.
+
 <details>
 <summary><strong>Optional parameters</strong></summary>
 <br>
@@ -183,6 +185,20 @@ You can customize the processing with additional optional arguments:
 ```
 </details>
 
+If you want to generate results for all PDFs in a folder and ensure every result includes `doc_description`:
+
+```bash
+python3 scripts/regenerate_test_results.py \
+  --pdf_dir /path/to/pdf_dir \
+  --output_dir /path/to/output_dir
+```
+
+For the built-in test fixtures in this repo:
+
+```bash
+python3 scripts/regenerate_test_results.py
+```
+
 ### 4. Query a generated tree structure
 
 Once you have a PageIndex tree structure JSON file, you can query it with `search_pageindex.py`:
@@ -193,12 +209,40 @@ python3 search_pageindex.py \
   --query "论文使用了什么方法"
 ```
 
-If you want to search across all tree structures in a folder, use `--tree_dir`:
+If you want to search across all generated tree structures in a folder, use `--tree_dir`:
+
+```bash
+python3 search_pageindex.py \
+  --tree_dir /path/to/output_dir \
+  --query "论文使用了什么方法"
+```
+
+For the built-in test results in this repo:
 
 ```bash
 python3 search_pageindex.py \
   --tree_dir tests/results \
   --query "论文使用了什么方法"
+```
+
+In folder mode, `search_pageindex.py` first builds a document-description catalog, asks the LLM to select the most relevant documents, and then runs tree search only on the selected files. By default, the catalog is stored at `tests/results/.pageindex_doc_catalog.json`.
+
+You can limit how many documents enter the tree-search stage:
+
+```bash
+python3 search_pageindex.py \
+  --tree_dir tests/results \
+  --query "论文使用了什么方法" \
+  --doc_top_k 5
+```
+
+If you want to rebuild the document-description catalog from scratch:
+
+```bash
+python3 search_pageindex.py \
+  --tree_dir tests/results \
+  --query "论文使用了什么方法" \
+  --rebuild_catalog
 ```
 
 <details>
