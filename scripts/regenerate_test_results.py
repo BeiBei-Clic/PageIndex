@@ -21,7 +21,7 @@ def build_options(model=None):
         'if_add_node_id': 'yes',
         'if_add_node_summary': 'yes',
         'if_add_doc_description': 'yes',
-        'if_add_node_text': 'no',
+        'if_add_node_text': 'yes',
     }
     return ConfigLoader().load({k: v for k, v in user_opt.items() if v is not None})
 

@@ -8,15 +8,15 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 
-from pageindex.search import DEFAULT_DOC_TOP_K, DEFAULT_MAX_CONCURRENCY
-from search_pageindex import pageindex_qa
+from pageindex.search import DEFAULT_DOC_TOP_K, DEFAULT_MAX_CONCURRENCY, search_tree_dir
 
 DEFAULT_TREE_DIR = "tests/results"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 PAGEINDEX_MODEL = "deepseek/deepseek-chat"
+PAGEINDEX_TOOL_NAME = getattr(search_tree_dir, "name", "search_tree_dir")
 
 SYSTEM_PROMPT = """You are a concise document QA assistant.
-Always call the `pageindex_qa` tool before answering questions about the indexed documents.
+Always call the `search_tree_dir` tool before answering questions about the indexed documents.
 Base your final answer only on the tool result.
 If the tool says it did not find enough information, say you do not know instead of guessing."""
 
@@ -66,7 +66,7 @@ def _print_verbose_stream(agent: Any, agent_input: dict) -> None:
 
                 if message_type == "ToolMessage":
                     preview = content if len(content) <= 1200 else content[:1200] + "..."
-                    tool_name = getattr(message, "name", "pageindex_qa")
+                    tool_name = getattr(message, "name", PAGEINDEX_TOOL_NAME)
                     print(f"[tool result] {tool_name}\n{preview}\n")
                     continue
 
@@ -99,7 +99,7 @@ def main() -> None:
             api_key=api_key,
             temperature=0,
         ),
-        tools=[pageindex_qa],
+        tools=[search_tree_dir],
         system_prompt=SYSTEM_PROMPT,
     )
 
@@ -113,7 +113,7 @@ def main() -> None:
         "messages": [{
             "role": "user",
             "content": (
-                "Use the `pageindex_qa` tool to answer the following question.\n"
+                "Use the `search_tree_dir` tool to answer the following question.\n"
                 f"When you call the tool, use tree_dir='{args.tree_dir}', model='{PAGEINDEX_MODEL}', "
                 f"doc_top_k={args.doc_top_k}, max_concurrency={args.max_concurrency}, "
                 f"max_context={args.max_context}, rebuild_catalog={rebuild_flag}. "

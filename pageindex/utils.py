@@ -1,18 +1,16 @@
-import litellm
+import importlib
+import importlib.util
 import logging
 import os
+import re
 from datetime import datetime
-import time
 import json
-import PyPDF2
 import copy
 import asyncio
-import pymupdf
 from io import BytesIO
 from dotenv import load_dotenv
+
 load_dotenv()
-import logging
-import yaml
 from pathlib import Path
 from types import SimpleNamespace as config
 
@@ -20,61 +18,60 @@ from types import SimpleNamespace as config
 if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
     os.environ["OPENAI_API_KEY"] = os.getenv("CHATGPT_API_KEY")
 
-litellm.drop_params = True
+def _optional_import(module_name):
+    if importlib.util.find_spec(module_name) is None:
+        return None
+    return importlib.import_module(module_name)
+
+
+litellm = _optional_import("litellm")
+PyPDF2 = _optional_import("PyPDF2")
+pymupdf = _optional_import("pymupdf")
+yaml = _optional_import("yaml")
+
+if litellm is not None:
+    litellm.drop_params = True
+
+
+def _require_dependency(module, package_name):
+    if module is None:
+        raise ModuleNotFoundError(
+            f"{package_name} is required for this operation. Install dependencies from requirements.txt."
+        )
+    return module
 
 def count_tokens(text, model=None):
     if not text:
         return 0
+    _require_dependency(litellm, "litellm")
     return litellm.token_counter(model=model, text=text)
 
 
 def llm_completion(model, prompt, chat_history=None, return_finish_reason=False):
-    max_retries = 10
+    _require_dependency(litellm, "litellm")
     messages = list(chat_history) + [{"role": "user", "content": prompt}] if chat_history else [{"role": "user", "content": prompt}]
-    for i in range(max_retries):
-        try:
-            response = litellm.completion(
-                model=model,
-                messages=messages,
-                temperature=0,
-            )
-            content = response.choices[0].message.content
-            if return_finish_reason:
-                finish_reason = "max_output_reached" if response.choices[0].finish_reason == "length" else "finished"
-                return content, finish_reason
-            return content
-        except Exception as e:
-            print('************* Retrying *************')
-            logging.error(f"Error: {e}")
-            if i < max_retries - 1:
-                time.sleep(1)
-            else:
-                logging.error('Max retries reached for prompt: ' + prompt)
-                if return_finish_reason:
-                    return "", "error"
-                return ""
+    response = litellm.completion(
+        model=model,
+        messages=messages,
+        temperature=0,
+    )
+    content = response.choices[0].message.content
+    if return_finish_reason:
+        finish_reason = "max_output_reached" if response.choices[0].finish_reason == "length" else "finished"
+        return content, finish_reason
+    return content
 
 
 
 async def llm_acompletion(model, prompt):
-    max_retries = 10
+    _require_dependency(litellm, "litellm")
     messages = [{"role": "user", "content": prompt}]
-    for i in range(max_retries):
-        try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=messages,
-                temperature=0,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            print('************* Retrying *************')
-            logging.error(f"Error: {e}")
-            if i < max_retries - 1:
-                await asyncio.sleep(1)
-            else:
-                logging.error('Max retries reached for prompt: ' + prompt)
-                return ""
+    response = await litellm.acompletion(
+        model=model,
+        messages=messages,
+        temperature=0,
+    )
+    return response.choices[0].message.content
             
             
 def get_json_content(response):
@@ -92,37 +89,19 @@ def get_json_content(response):
          
 
 def extract_json(content):
-    try:
-        # First, try to extract JSON enclosed within ```json and ```
-        start_idx = content.find("```json")
-        if start_idx != -1:
-            start_idx += 7  # Adjust index to start after the delimiter
-            end_idx = content.rfind("```")
-            json_content = content[start_idx:end_idx].strip()
-        else:
-            # If no delimiters, assume entire content could be JSON
-            json_content = content.strip()
+    start_idx = content.find("```json")
+    if start_idx != -1:
+        start_idx += 7
+        end_idx = content.rfind("```")
+        json_content = content[start_idx:end_idx].strip()
+    else:
+        json_content = content.strip()
 
-        # Clean up common issues that might cause parsing errors
-        json_content = json_content.replace('None', 'null')  # Replace Python None with JSON null
-        json_content = json_content.replace('\n', ' ').replace('\r', ' ')  # Remove newlines
-        json_content = ' '.join(json_content.split())  # Normalize whitespace
-
-        # Attempt to parse and return the JSON object
-        return json.loads(json_content)
-    except json.JSONDecodeError as e:
-        logging.error(f"Failed to extract JSON: {e}")
-        # Try to clean up the content further if initial parsing fails
-        try:
-            # Remove any trailing commas before closing brackets/braces
-            json_content = json_content.replace(',]', ']').replace(',}', '}')
-            return json.loads(json_content)
-        except:
-            logging.error("Failed to parse JSON even after cleanup")
-            return {}
-    except Exception as e:
-        logging.error(f"Unexpected error while extracting JSON: {e}")
-        return {}
+    json_content = json_content.replace('None', 'null')
+    json_content = json_content.replace('\n', ' ').replace('\r', ' ')
+    json_content = ' '.join(json_content.split())
+    json_content = json_content.replace(',]', ']').replace(',}', '}')
+    return json.loads(json_content)
 
 def write_node_id(data, node_id=0):
     if isinstance(data, dict):
@@ -214,6 +193,7 @@ def get_last_node(structure):
 
 
 def extract_text_from_pdf(pdf_path):
+    _require_dependency(PyPDF2, "PyPDF2")
     pdf_reader = PyPDF2.PdfReader(pdf_path)
     ###return text not list 
     text=""
@@ -223,12 +203,14 @@ def extract_text_from_pdf(pdf_path):
     return text
 
 def get_pdf_title(pdf_path):
+    _require_dependency(PyPDF2, "PyPDF2")
     pdf_reader = PyPDF2.PdfReader(pdf_path)
     meta = pdf_reader.metadata
     title = meta.title if meta and meta.title else 'Untitled'
     return title
 
 def get_text_of_pages(pdf_path, start_page, end_page, tag=True):
+    _require_dependency(PyPDF2, "PyPDF2")
     pdf_reader = PyPDF2.PdfReader(pdf_path)
     text = ""
     for page_num in range(start_page-1, end_page):
@@ -268,6 +250,7 @@ def get_pdf_name(pdf_path):
     if isinstance(pdf_path, str):
         pdf_name = os.path.basename(pdf_path)
     elif isinstance(pdf_path, BytesIO):
+        _require_dependency(PyPDF2, "PyPDF2")
         pdf_reader = PyPDF2.PdfReader(pdf_path)
         meta = pdf_reader.metadata
         pdf_name = meta.title if meta and meta.title else 'Untitled'
@@ -380,7 +363,9 @@ def add_preface_if_needed(data):
 
 
 def get_page_tokens(pdf_path, model=None, pdf_parser="PyPDF2"):
+    _require_dependency(litellm, "litellm")
     if pdf_parser == "PyPDF2":
+        _require_dependency(PyPDF2, "PyPDF2")
         pdf_reader = PyPDF2.PdfReader(pdf_path)
         page_list = []
         for page_num in range(len(pdf_reader.pages)):
@@ -390,6 +375,7 @@ def get_page_tokens(pdf_path, model=None, pdf_parser="PyPDF2"):
             page_list.append((page_text, token_length))
         return page_list
     elif pdf_parser == "PyMuPDF":
+        _require_dependency(pymupdf, "pymupdf")
         if isinstance(pdf_path, BytesIO):
             pdf_stream = pdf_path
             doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
@@ -419,6 +405,7 @@ def get_text_of_pdf_pages_with_labels(pdf_pages, start_page, end_page):
     return text
 
 def get_number_of_pages(pdf_path):
+    _require_dependency(PyPDF2, "PyPDF2")
     pdf_reader = PyPDF2.PdfReader(pdf_path)
     num = len(pdf_reader.pages)
     return num
@@ -536,11 +523,9 @@ def convert_physical_index_to_int(data):
 def convert_page_to_int(data):
     for item in data:
         if 'page' in item and isinstance(item['page'], str):
-            try:
-                item['page'] = int(item['page'])
-            except ValueError:
-                # Keep original value if conversion fails
-                pass
+            page_text = item['page'].strip()
+            if page_text.isdigit():
+                item['page'] = int(page_text)
     return data
 
 
@@ -654,6 +639,7 @@ class ConfigLoader:
 
     @staticmethod
     def _load_yaml(path):
+        _require_dependency(yaml, "pyyaml")
         with open(path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
