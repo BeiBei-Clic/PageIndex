@@ -158,7 +158,9 @@ CHATGPT_API_KEY=your_openai_key_here
 ### 3. Run PageIndex on your PDF
 
 ```bash
-python3 run_pageindex.py --pdf_path /path/to/your/document.pdf
+python3 run_pageindex.py \
+  --pdf_path /path/to/your/document.pdf \
+  --if-add-node-text yes
 ```
 
 The generated tree structure will be saved to:
