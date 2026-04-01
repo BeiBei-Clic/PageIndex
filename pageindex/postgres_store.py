@@ -137,6 +137,18 @@ def _normalize_timestamp(value: Any) -> str:
 
 def _normalize_text(value: Any) -> str:
     return " ".join(str(value).split()) if value else ""
+
+
+def _remove_nul_chars(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, dict):
+        return {key: _remove_nul_chars(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_remove_nul_chars(item) for item in value]
+    return value
+
+
 def ensure_table_exists(connection: Any) -> None:
     with connection.cursor() as cursor:
         cursor.execute(CREATE_TABLE_SQL)
@@ -168,9 +180,11 @@ def upsert_pageindex_document(
     if not isinstance(result, (dict, list)):
         raise TypeError("PageIndex result must be a JSON-serializable dict or list.")
 
-    if isinstance(result, dict):
-        doc_name = _normalize_text(result.get("doc_name")) or Path(normalized_source_path).name
-        doc_description = _normalize_text(result.get("doc_description"))
+    sanitized_result = _remove_nul_chars(result)
+
+    if isinstance(sanitized_result, dict):
+        doc_name = _normalize_text(sanitized_result.get("doc_name")) or Path(normalized_source_path).name
+        doc_description = _normalize_text(sanitized_result.get("doc_description"))
     else:
         doc_name = Path(normalized_source_path).name
         doc_description = ""
@@ -180,7 +194,7 @@ def upsert_pageindex_document(
             "PageIndex result is missing doc_description. Ingest requires doc_description for document selection."
         )
 
-    tree_json = json.dumps(result, ensure_ascii=False)
+    tree_json = json.dumps(sanitized_result, ensure_ascii=False)
 
     with _connect() as connection:
         ensure_table_exists(connection)

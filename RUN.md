@@ -7,9 +7,9 @@ $env:PAGEINDEX_POSTGRES_DSN="postgresql://user:password@localhost:5432/pageindex
 ```bash
 python .\run_pageindex.py --pdf_path .\tests\pdfs\main.pdf
 
-python .\run_pageindex.py --pdf_path .\tests\pdfs --max-workers 4
+python .\run_pageindex.py --pdf_path .\tests\pdfs --max-workers 10
 
-python .\run_pageindex.py --pdf_path .\tests\pdfs\main.pdf .\tests\pdfs\ocr_test.pdf --max-workers 2
+python .\run_pageindex.py --pdf_path .\tests\pdfs\main.pdf .\tests\pdfs\ocr_test.pdf --max-workers 10
 ```
 
 ```bash

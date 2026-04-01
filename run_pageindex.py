@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from pageindex.page_index import page_index_main
@@ -121,12 +121,19 @@ def main() -> None:
             print(f"Parallel workers: {max_workers}")
 
             completed_count = 0
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            failed_jobs = []
+            with ProcessPoolExecutor(max_workers=max_workers, max_tasks_per_child=1) as executor:
                 future_to_pdf_path = {
                     executor.submit(ingest_pdf, pdf_path, resolved_user_opt): pdf_path
                     for pdf_path in deduplicated_pdf_paths
                 }
                 for future in as_completed(future_to_pdf_path):
+                    error = future.exception()
+                    if error is not None:
+                        failed_jobs.append((future_to_pdf_path[future], error))
+                        print(f"FAILED: {future_to_pdf_path[future]}")
+                        print(f"error: {error}")
+                        continue
                     document = future.result()
                     completed_count += 1
                     print(f"[{completed_count}/{len(deduplicated_pdf_paths)}] Stored document_id={document.document_id}")
@@ -134,7 +141,10 @@ def main() -> None:
                     print(f"source_path: {document.source_path}")
 
             print("Parsing done, saving to Postgres...")
-            print(f"Completed: success={completed_count} failed=0")
+            print(f"Completed: success={completed_count} failed={len(failed_jobs)}")
+            if failed_jobs:
+                failed_paths = [pdf_path for pdf_path, _ in failed_jobs]
+                raise Exception(f"Failed PDFs: {failed_paths}")
             
     elif args.md_path:
         # Validate Markdown file
