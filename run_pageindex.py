@@ -1,13 +1,12 @@
 import argparse
 import os
-import json
 from pageindex import *
 from pageindex.page_index_md import md_to_tree
+from pageindex.postgres_store import upsert_pageindex_document
 from pageindex.utils import ConfigLoader
 
-DEFAULT_OUTPUT_DIR = './tests/results'
 
-if __name__ == "__main__":
+def main() -> None:
     # Set up argument parser
     parser = argparse.ArgumentParser(description='Process PDF or Markdown document and generate structure')
     parser.add_argument('--pdf_path', type=str, help='Path to the PDF file')
@@ -68,18 +67,15 @@ if __name__ == "__main__":
 
         # Process the PDF
         toc_with_page_number = page_index_main(args.pdf_path, opt)
-        print('Parsing done, saving to file...')
-        
-        # Save results
-        pdf_name = os.path.splitext(os.path.basename(args.pdf_path))[0]    
-        output_dir = DEFAULT_OUTPUT_DIR
-        output_file = f'{output_dir}/{pdf_name}_structure.json'
-        os.makedirs(output_dir, exist_ok=True)
-        
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(toc_with_page_number, f, indent=2)
-        
-        print(f'Tree structure saved to: {output_file}')
+        document = upsert_pageindex_document(
+            source_path=args.pdf_path,
+            source_type='pdf',
+            result=toc_with_page_number,
+        )
+        print("Parsing done, saving to Postgres...")
+        print(f"document_id: {document.document_id}")
+        print(f"doc_name: {document.doc_name}")
+        print(f"source_path: {document.source_path}")
             
     elif args.md_path:
         # Validate Markdown file
@@ -95,7 +91,6 @@ if __name__ == "__main__":
         import asyncio
         
         # Use ConfigLoader to get consistent defaults (matching PDF behavior)
-        from pageindex.utils import ConfigLoader
         config_loader = ConfigLoader()
         
         # Create options dict with user args
@@ -122,15 +117,16 @@ if __name__ == "__main__":
             if_add_node_id=opt.if_add_node_id
         ))
         
-        print('Parsing done, saving to file...')
-        
-        # Save results
-        md_name = os.path.splitext(os.path.basename(args.md_path))[0]    
-        output_dir = DEFAULT_OUTPUT_DIR
-        output_file = f'{output_dir}/{md_name}_structure.json'
-        os.makedirs(output_dir, exist_ok=True)
-        
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(toc_with_page_number, f, indent=2, ensure_ascii=False)
-        
-        print(f'Tree structure saved to: {output_file}')
+        document = upsert_pageindex_document(
+            source_path=args.md_path,
+            source_type='md',
+            result=toc_with_page_number,
+        )
+        print("Parsing done, saving to Postgres...")
+        print(f"document_id: {document.document_id}")
+        print(f"doc_name: {document.doc_name}")
+        print(f"source_path: {document.source_path}")
+
+
+if __name__ == "__main__":
+    main()

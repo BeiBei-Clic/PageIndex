@@ -2,21 +2,21 @@
 """Minimal LangChain v1 agent for PageIndex QA."""
 import argparse
 import os
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 
-from pageindex.search import DEFAULT_DOC_TOP_K, DEFAULT_MAX_CONCURRENCY, search_tree_dir
+from pageindex.search import DEFAULT_DOC_TOP_K, DEFAULT_MAX_CONCURRENCY, search_pageindex
 
-DEFAULT_TREE_DIR = "tests/results"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 PAGEINDEX_MODEL = "deepseek/deepseek-chat"
-PAGEINDEX_TOOL_NAME = getattr(search_tree_dir, "name", "search_tree_dir")
+PAGEINDEX_TOOL_NAME = getattr(search_pageindex, "name", "search_pageindex")
 
 SYSTEM_PROMPT = """You are a concise document QA assistant.
-Always call the `search_tree_dir` tool before answering questions about the indexed documents.
+Always call the `search_pageindex` tool before answering questions about the indexed documents.
 Base your final answer only on the tool result.
 If the tool says it did not find enough information, say you do not know instead of guessing."""
 
@@ -77,16 +77,13 @@ def _print_verbose_stream(agent: Any, agent_input: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Minimal LangChain v1 PageIndex agent")
     parser.add_argument("--query", type=str, required=True, help="Question for the agent")
-    parser.add_argument("--tree-dir", type=str, default=DEFAULT_TREE_DIR, help="Directory containing *_structure.json files")
     parser.add_argument("--doc-top-k", type=int, default=DEFAULT_DOC_TOP_K, help="Maximum number of documents selected for tree search")
     parser.add_argument("--max-concurrency", type=int, default=DEFAULT_MAX_CONCURRENCY, help="Maximum number of documents searched concurrently")
-    parser.add_argument("--catalog-path", type=str, default=None, help="Optional catalog path passed to PageIndex")
-    parser.add_argument("--rebuild-catalog", action="store_true", help="Force rebuilding the PageIndex catalog")
     parser.add_argument("--max-context", type=int, default=10000, help="Maximum context length passed to PageIndex")
     parser.add_argument("--verbose", action="store_true", help="Print streaming tool activity")
     args = parser.parse_args()
 
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().with_name(".env"))
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise ValueError("DEEPSEEK_API_KEY is not set in the environment.")
@@ -99,25 +96,18 @@ def main() -> None:
             api_key=api_key,
             temperature=0,
         ),
-        tools=[search_tree_dir],
+        tools=[search_pageindex],
         system_prompt=SYSTEM_PROMPT,
     )
 
-    catalog_instruction = (
-        f"Set catalog_path to '{args.catalog_path}'."
-        if args.catalog_path
-        else "Leave catalog_path unset so the tool can use its default catalog path."
-    )
-    rebuild_flag = "true" if args.rebuild_catalog else "false"
     agent_input = {
         "messages": [{
             "role": "user",
             "content": (
-                "Use the `search_tree_dir` tool to answer the following question.\n"
-                f"When you call the tool, use tree_dir='{args.tree_dir}', model='{PAGEINDEX_MODEL}', "
+                "Use the `search_pageindex` tool to answer the following question.\n"
+                f"When you call the tool, use model='{PAGEINDEX_MODEL}', "
                 f"doc_top_k={args.doc_top_k}, max_concurrency={args.max_concurrency}, "
-                f"max_context={args.max_context}, rebuild_catalog={rebuild_flag}. "
-                f"{catalog_instruction}\n"
+                f"max_context={args.max_context}.\n"
                 f"Question: {args.query}"
             ),
         }],

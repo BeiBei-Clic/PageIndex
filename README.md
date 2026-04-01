@@ -153,22 +153,19 @@ Create a `.env` file in the root directory and add your API key:
 
 ```bash
 CHATGPT_API_KEY=your_openai_key_here
+PAGEINDEX_POSTGRES_DSN=postgresql://user:password@localhost:5432/pageindex
 ```
 
 ### 3. Run PageIndex on your PDF
 
 ```bash
-python .\scripts\regenerate_test_results.py --pdf_dir .\tests\pdfs --pattern main.pdf --output_dir .\tests\results
+python .\scripts\regenerate_test_results.py --pdf_dir .\tests\pdfs --pattern main.pdf
 
 ```
 
-The generated tree structure will be saved to:
+The generated tree structure and document metadata will be stored in the Postgres `pageindex_documents` table.
 
-```bash
-tests/results/<document_name>_structure.json
-```
-
-By default, the generated JSON now includes `doc_description` in addition to the tree structure.
+Each ingested row includes `doc_name`, `doc_description`, and the full `tree_json`.
 
 <details>
 <summary><strong>Optional parameters</strong></summary>
@@ -190,8 +187,7 @@ If you want to generate results for all PDFs in a folder and ensure every result
 
 ```bash
 python3 scripts/regenerate_test_results.py \
-  --pdf_dir tests/pdfs \
-  --output_dir tests/results
+  --pdf_dir tests/pdfs
 ```
 
 For the built-in test fixtures in this repo:
@@ -200,18 +196,17 @@ For the built-in test fixtures in this repo:
 python3 scripts/regenerate_test_results.py
 ```
 
-### 4. Query generated tree structures in a folder
+### 4. Query ingested documents from Postgres
 
-`search_tree_dir` is now a first-class LangChain tool, and the old `search_pageindex.py` CLI has been removed. For Python code, use `run_tree_search(...)`. For agent-driven QA, use `agent_pageindex.py`.
+`search_pageindex` is now the first-class LangChain tool for Postgres-backed multi-document search. For Python code, use `run_tree_search(...)`. For agent-driven QA, use `agent_pageindex.py`.
 
-Breaking change: `pageindex.search.search_tree_dir` is now a tool object. If you need direct programmatic access to the search pipeline, call `run_tree_search(...)` instead.
+Breaking change: `pageindex.search.search_pageindex` is now a tool object. If you need direct programmatic access to the search pipeline, call `run_tree_search(...)` instead.
 
 ```python
 from pageindex.search import run_tree_search
 
 result = run_tree_search(
     query="How do the three operations in the editing flow work?",
-    tree_dir="tests/results",
     doc_top_k=5,
     max_concurrency=10,
 )
@@ -221,7 +216,6 @@ print(result.answer)
 
 ```bash
 python3 agent_pageindex.py \
-  --tree-dir tests/results \
   --query "How do the three operations in the editing flow work?" \
   --doc-top-k 5 \
   --max-concurrency 10

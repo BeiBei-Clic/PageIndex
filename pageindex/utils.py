@@ -8,10 +8,10 @@ import json
 import copy
 import asyncio
 from io import BytesIO
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
-from pathlib import Path
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 from types import SimpleNamespace as config
 
 # Backward compatibility: support CHATGPT_API_KEY as alias for OPENAI_API_KEY

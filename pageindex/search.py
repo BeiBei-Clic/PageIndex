@@ -3,40 +3,29 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Any
 
 from langchain.tools import tool
 
 from . import utils
+from .postgres_store import StoredDocument, get_documents_by_ids, list_catalog_documents
 from .prompt import ANSWER_PROMPT, DOC_SELECTION_PROMPT, TREE_SEARCH_PROMPT
 from .utils import extract_json, llm_acompletion, llm_completion
 
-CATALOG_VERSION = 1
 DEFAULT_DOC_TOP_K = 10
 DEFAULT_MAX_CONCURRENCY = 10
 DEFAULT_MODEL = "deepseek/deepseek-chat"
 DEFAULT_MAX_CONTEXT = 10000
+CATALOG_BACKEND = "postgres"
 
 
 @dataclass(slots=True)
 class CatalogEntry:
-    tree_path: str
+    document_id: str
+    source_path: str
     doc_name: str
     doc_description: str
-    mtime_ns: int
-    size: int
-
-    @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "CatalogEntry":
-        tree_path = str(payload["tree_path"])
-        return cls(
-            tree_path=tree_path,
-            doc_name=_normalize_text(payload.get("doc_name")) or Path(tree_path).name,
-            doc_description=_normalize_text(payload.get("doc_description")),
-            mtime_ns=int(payload.get("mtime_ns", 0)),
-            size=int(payload.get("size", 0)),
-        )
+    updated_at: str
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -48,8 +37,9 @@ class RelevantNode:
     title: str
     page: str
     content: str
+    document_id: str | None = None
     doc_name: str | None = None
-    tree_path: str | None = None
+    source_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -57,7 +47,8 @@ class RelevantNode:
 
 @dataclass(slots=True)
 class DocumentSearchResult:
-    path: str
+    document_id: str
+    source_path: str
     doc_name: str
     search_result: Any
     relevant_nodes: list[RelevantNode] = field(default_factory=list)
@@ -69,10 +60,8 @@ class DocumentSearchResult:
 
 @dataclass(slots=True)
 class PageIndexSearchResult:
-    tree_dir: str
-    catalog_path: str
+    catalog_backend: str = CATALOG_BACKEND
     catalog_entries: list[CatalogEntry] = field(default_factory=list)
-    catalog_updated_paths: list[str] = field(default_factory=list)
     doc_selection_result: Any = field(default_factory=dict)
     raw_doc_list: list[str] = field(default_factory=list)
     selected_entries: list[CatalogEntry] = field(default_factory=list)
@@ -85,134 +74,6 @@ class PageIndexSearchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-def _load_tree_structure(json_path: str | Path) -> dict[str, Any] | list[Any]:
-    path = Path(json_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Tree structure file not found: {path}")
-    with path.open("r", encoding="utf-8") as handle:
-        tree = json.load(handle)
-    if isinstance(tree, list) and tree:
-        return tree[0]
-    return tree
-
-
-def _normalize_text(text: Any) -> str:
-    return " ".join(str(text).split()) if text else ""
-
-
-def _get_doc_description(tree: Any, tree_path: str | Path, model: str) -> str:
-    tree_data = tree if isinstance(tree, dict) else {}
-    doc_description = _normalize_text(tree_data.get("doc_description", ""))
-    if doc_description:
-        return doc_description
-
-    structure = tree_data.get("structure", tree)
-    clean_structure = utils.create_clean_structure_for_description(structure)
-    generated = _normalize_text(utils.generate_doc_description(clean_structure, model=model))
-    if generated:
-        return generated[:400]
-
-    if isinstance(structure, dict):
-        candidate_nodes = [structure]
-    elif isinstance(structure, list):
-        candidate_nodes = structure[:5]
-    else:
-        candidate_nodes = []
-
-    snippets: list[str] = []
-    for node in candidate_nodes:
-        if not isinstance(node, dict):
-            continue
-        title = _normalize_text(node.get("title", ""))
-        summary = _normalize_text(node.get("summary", ""))
-        if title and summary:
-            snippets.append(f"{title}: {summary}")
-        elif title or summary:
-            snippets.append(title or summary)
-
-    if snippets:
-        return _normalize_text("; ".join(snippets))[:400]
-    return f"Tree structure for {Path(tree_path).stem}."
-
-
-def _sync_doc_catalog(
-    tree_dir: str | Path,
-    catalog_path: str | Path,
-    model: str,
-    rebuild: bool = False,
-) -> tuple[list[CatalogEntry], list[str]]:
-    tree_dir = Path(tree_dir)
-    catalog_path = Path(catalog_path)
-    if not tree_dir.exists():
-        raise FileNotFoundError(f"Directory not found: {tree_dir}")
-    if not tree_dir.is_dir():
-        raise NotADirectoryError(f"Not a directory: {tree_dir}")
-
-    tree_paths = sorted(tree_dir.glob("*_structure.json"))
-    if not tree_paths:
-        raise FileNotFoundError(f"No *_structure.json files found in directory: {tree_dir}")
-
-    cached_entries: dict[str, CatalogEntry] = {}
-    if not rebuild and catalog_path.exists():
-        with catalog_path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-        cached_payload_entries = payload.get("entries", [])
-        if payload.get("version") == CATALOG_VERSION and isinstance(cached_payload_entries, list):
-            cached_entries = {
-                str(entry["tree_path"]): CatalogEntry.from_payload(entry)
-                for entry in cached_payload_entries
-                if isinstance(entry, dict) and entry.get("tree_path")
-            }
-
-    entries: list[CatalogEntry] = []
-    updated_paths: list[str] = []
-    changed = rebuild
-
-    for tree_path in tree_paths:
-        stat = tree_path.stat()
-        cached = cached_entries.get(str(tree_path))
-        if (
-            cached
-            and cached.mtime_ns == stat.st_mtime_ns
-            and cached.size == stat.st_size
-            and cached.doc_name
-            and cached.doc_description
-        ):
-            entries.append(cached)
-            continue
-
-        tree = _load_tree_structure(tree_path)
-        doc_name = tree.get("doc_name") if isinstance(tree, dict) else None
-        entries.append(
-            CatalogEntry(
-                tree_path=str(tree_path),
-                doc_name=_normalize_text(doc_name) or tree_path.name,
-                doc_description=_get_doc_description(tree, tree_path, model),
-                mtime_ns=stat.st_mtime_ns,
-                size=stat.st_size,
-            )
-        )
-        updated_paths.append(str(tree_path))
-        changed = True
-
-    if len(entries) != len(cached_entries):
-        changed = True
-
-    entries.sort(key=lambda item: item.tree_path)
-
-    if changed:
-        catalog_path.parent.mkdir(parents=True, exist_ok=True)
-        with catalog_path.open("w", encoding="utf-8") as handle:
-            json.dump(
-                {"version": CATALOG_VERSION, "entries": [entry.to_dict() for entry in entries]},
-                handle,
-                indent=2,
-                ensure_ascii=False,
-            )
-
-    return entries, updated_paths
 
 
 def _get_relevant_content(node_list: list[Any], tree: Any) -> list[RelevantNode]:
@@ -256,23 +117,20 @@ def _get_relevant_content(node_list: list[Any], tree: Any) -> list[RelevantNode]
 
 async def _search_selected_documents(
     query: str,
-    selected_entries: list[CatalogEntry],
+    selected_documents: list[StoredDocument],
     model: str,
     max_concurrency: int,
 ) -> list[DocumentSearchResult]:
     semaphore = asyncio.Semaphore(max_concurrency)
 
-    async def search_entry(entry: CatalogEntry) -> DocumentSearchResult:
-        tree_path = Path(entry.tree_path)
-        tree = _load_tree_structure(tree_path)
-
+    async def search_document(document: StoredDocument) -> DocumentSearchResult:
+        tree = document.tree_json
         structure = tree.get("structure", tree) if isinstance(tree, dict) else tree
-        doc_info: list[str] = []
-        if isinstance(tree, dict):
-            if tree.get("doc_name"):
-                doc_info.append(f"Document name: {tree['doc_name']}")
-            if tree.get("doc_description"):
-                doc_info.append(f"Document description: {tree['doc_description']}")
+        doc_info = [
+            f"Document name: {document.doc_name}",
+            f"Document description: {document.doc_description}",
+            f"Source path: {document.source_path}",
+        ]
 
         async with semaphore:
             search_result = extract_json(
@@ -296,32 +154,20 @@ async def _search_selected_documents(
         if ok:
             relevant_nodes = _get_relevant_content(node_list, tree)
             for node in relevant_nodes:
-                node.doc_name = entry.doc_name
-                node.tree_path = str(tree_path)
+                node.document_id = document.document_id
+                node.doc_name = document.doc_name
+                node.source_path = document.source_path
 
         return DocumentSearchResult(
-            path=str(tree_path),
-            doc_name=entry.doc_name,
+            document_id=document.document_id,
+            source_path=document.source_path,
+            doc_name=document.doc_name,
             search_result=search_result,
             relevant_nodes=relevant_nodes,
             ok=ok,
         )
 
-    return await asyncio.gather(*(search_entry(entry) for entry in selected_entries))
-
-
-def _normalize_raw_doc_list(doc_selection_result: Any) -> list[str]:
-    if not isinstance(doc_selection_result, dict):
-        return []
-
-    raw_doc_list = doc_selection_result.get("doc_list", doc_selection_result.get("answer", []))
-    if isinstance(raw_doc_list, str):
-        return [raw_doc_list]
-    if isinstance(raw_doc_list, list):
-        return [str(doc_id) for doc_id in raw_doc_list]
-    return []
-
-
+    return await asyncio.gather(*(search_document(document) for document in selected_documents))
 def _build_context(relevant_nodes: list[RelevantNode], max_context: int) -> tuple[str, bool]:
     if max_context < 0:
         raise ValueError("--max_context must be greater than or equal to 0")
@@ -348,12 +194,9 @@ def _build_context(relevant_nodes: list[RelevantNode], max_context: int) -> tupl
 
 def run_tree_search(
     query: str,
-    tree_dir: str,
     model: str = DEFAULT_MODEL,
     doc_top_k: int = DEFAULT_DOC_TOP_K,
     max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
-    catalog_path: str | None = None,
-    rebuild_catalog: bool = False,
     max_context: int = DEFAULT_MAX_CONTEXT,
 ) -> PageIndexSearchResult:
     if doc_top_k <= 0:
@@ -361,28 +204,31 @@ def run_tree_search(
     if max_concurrency <= 0:
         raise ValueError("--max_concurrency must be greater than 0")
 
-    tree_dir_path = Path(tree_dir)
-    catalog_path_obj = Path(catalog_path) if catalog_path else tree_dir_path / ".pageindex_doc_catalog.json"
-
-    catalog_entries, catalog_updated_paths = _sync_doc_catalog(
-        tree_dir=tree_dir_path,
-        catalog_path=catalog_path_obj,
-        model=model,
-        rebuild=rebuild_catalog,
-    )
+    catalog_entries = [
+        CatalogEntry(
+            document_id=record.document_id,
+            source_path=record.source_path,
+            doc_name=record.doc_name,
+            doc_description=record.doc_description,
+            updated_at=record.updated_at,
+        )
+        for record in list_catalog_documents()
+    ]
+    if not catalog_entries:
+        return PageIndexSearchResult(catalog_entries=[])
 
     documents: list[dict[str, str]] = []
     entry_map: dict[str, CatalogEntry] = {}
-    for index, entry in enumerate(catalog_entries, start=1):
-        doc_id = f"doc_{index:04d}"
+    for entry in catalog_entries:
         documents.append(
             {
-                "doc_id": doc_id,
+                "doc_id": entry.document_id,
                 "doc_name": entry.doc_name,
                 "doc_description": entry.doc_description,
+                "source_path": entry.source_path,
             }
         )
-        entry_map[doc_id] = entry
+        entry_map[entry.document_id] = entry
 
     doc_selection_result = extract_json(
         llm_completion(
@@ -394,16 +240,22 @@ def run_tree_search(
             ),
         )
     )
-    raw_doc_list = _normalize_raw_doc_list(doc_selection_result)
+    raw_doc_list_value = doc_selection_result.get("doc_list", doc_selection_result.get("answer", [])) if isinstance(doc_selection_result, dict) else []
+    if isinstance(raw_doc_list_value, str):
+        raw_doc_list = [raw_doc_list_value]
+    elif isinstance(raw_doc_list_value, list):
+        raw_doc_list = [str(doc_id) for doc_id in raw_doc_list_value]
+    else:
+        raw_doc_list = []
 
     selected_entries: list[CatalogEntry] = []
     seen: set[str] = set()
-    for doc_id in raw_doc_list:
-        entry = entry_map.get(str(doc_id))
-        if not entry or doc_id in seen:
+    for document_id in raw_doc_list:
+        entry = entry_map.get(str(document_id))
+        if not entry or document_id in seen:
             continue
         selected_entries.append(entry)
-        seen.add(doc_id)
+        seen.add(document_id)
         if len(selected_entries) >= doc_top_k:
             break
 
@@ -415,10 +267,16 @@ def run_tree_search(
     context_truncated = False
 
     if selected_entries:
+        loaded_documents = get_documents_by_ids([entry.document_id for entry in selected_entries])
+        loaded_documents_by_id = {document.document_id: document for document in loaded_documents}
         search_results = asyncio.run(
             _search_selected_documents(
                 query=query,
-                selected_entries=selected_entries,
+                selected_documents=[
+                    loaded_documents_by_id[entry.document_id]
+                    for entry in selected_entries
+                    if entry.document_id in loaded_documents_by_id
+                ],
                 model=model,
                 max_concurrency=max_concurrency,
             )
@@ -439,10 +297,7 @@ def run_tree_search(
                 )
 
     return PageIndexSearchResult(
-        tree_dir=str(tree_dir_path),
-        catalog_path=str(catalog_path_obj),
         catalog_entries=catalog_entries,
-        catalog_updated_paths=catalog_updated_paths,
         doc_selection_result=doc_selection_result,
         raw_doc_list=raw_doc_list,
         selected_entries=selected_entries,
@@ -473,7 +328,7 @@ def format_search_result(result: PageIndexSearchResult) -> str:
     lines = ["Answer:", answer_text, "", "Selected documents:"]
     if result.selected_entries:
         for index, entry in enumerate(result.selected_entries, start=1):
-            lines.append(f"{index}. {entry.doc_name} ({entry.tree_path})")
+            lines.append(f"{index}. [{entry.document_id}] {entry.doc_name} ({entry.source_path})")
     else:
         lines.append("None")
 
@@ -492,26 +347,20 @@ def format_search_result(result: PageIndexSearchResult) -> str:
 
 
 @tool(parse_docstring=True, response_format="content_and_artifact")
-def search_tree_dir(
+def search_pageindex(
     query: str,
-    tree_dir: str,
     model: str = DEFAULT_MODEL,
     doc_top_k: int = DEFAULT_DOC_TOP_K,
     max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
-    catalog_path: str | None = None,
-    rebuild_catalog: bool = False,
     max_context: int = DEFAULT_MAX_CONTEXT,
 ) -> tuple[str, dict[str, Any]]:
-    """Answer a question using PageIndex tree search over a directory of `*_structure.json` files.
+    """Answer a question using Postgres-backed PageIndex search.
 
     Args:
         query: Natural-language question to answer from the indexed documents.
-        tree_dir: Directory containing one or more `*_structure.json` files.
         model: Model name used for document selection, tree search, and answer synthesis.
         doc_top_k: Maximum number of documents selected before tree search.
         max_concurrency: Maximum number of selected documents searched concurrently.
-        catalog_path: Optional path to the cached document catalog JSON file.
-        rebuild_catalog: Whether to rebuild the cached document catalog before searching.
         max_context: Maximum number of context characters assembled for the final answer prompt.
 
     Returns:
@@ -519,19 +368,16 @@ def search_tree_dir(
     """
     result = run_tree_search(
         query=query,
-        tree_dir=tree_dir,
         model=model,
         doc_top_k=doc_top_k,
         max_concurrency=max_concurrency,
-        catalog_path=catalog_path,
-        rebuild_catalog=rebuild_catalog,
         max_context=max_context,
     )
     return format_search_result(result), result.to_dict()
 
 
 __all__ = [
-    "CATALOG_VERSION",
+    "CATALOG_BACKEND",
     "DEFAULT_DOC_TOP_K",
     "DEFAULT_MAX_CONCURRENCY",
     "DEFAULT_MAX_CONTEXT",
@@ -542,5 +388,5 @@ __all__ = [
     "RelevantNode",
     "format_search_result",
     "run_tree_search",
-    "search_tree_dir",
+    "search_pageindex",
 ]
