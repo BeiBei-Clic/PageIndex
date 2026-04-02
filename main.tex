@@ -2,7 +2,6 @@
 
 % 开始使用该模板请修改以下文件
 \input{docs/info}     % 在这里填写论文相关信息
-\input{docs/abstract}     % 在这里填写摘要内容
 
 \begin{document}
 % 论文前置部分
@@ -10,12 +9,7 @@
 \pagenumbering{Roman}
 \makeUndergraduateCover    % 生成封面
 
-% 生成学位论文原创性声明和版权使用授权书
-\makedisclaim[image/签名.png] % 生成带签名的原创性声明和版权使用授权书
-
-\makeabstract       % 生成中英文摘要
 \maketableofcontents        % 生成目录
-\makelistoffiguretable % 生成图表目录
 
 % 论文主体部分
 \mainmatter
@@ -34,9 +28,6 @@
 \renewcommand{\chaptermark}[1]{\markboth{\songti #1}{}}
 \include{docs/conclusion} % 结论
 \newclearpage
-
-% 参考文献
-\makereferences % 制作参考文献
 
 % 致谢
 \include{docs/ack} % 致谢

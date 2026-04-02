@@ -45,15 +45,3 @@
 
 \textbf{局限性}：本实验主要针对小型示例程序进行验证，尚未针对大型真实项目（如Django、Flask等框架）做系统评测。工具在大规模代码库上的性能和准确性有待进一步验证。
 
-\section*{工作展望}
-
-未来可以从以下方面改进工具：
-
-\begin{enumerate}
-    \item \textbf{提高覆盖率精度}：增加对elif分支、else分支的独立识别，区分true/false两个执行方向
-    \item \textbf{支持更多语法}：扩展支持with语句、async/await、match-case等Python 3.10+新特性
-    \item \textbf{集成开发环境}：开发IDE插件，实现实时覆盖率显示
-    \item \textbf{增量分析}：支持增量覆盖率分析，只分析变更的代码
-    \item \textbf{测试用例关联}：将覆盖率与具体测试用例关联，便于定位测试盲点
-    \item \textbf{大规模验证}：在真实大型项目上进行系统评测，验证工具的泛化能力
-\end{enumerate}

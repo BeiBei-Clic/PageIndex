@@ -327,7 +327,7 @@
         \end{figure}
         \begin{center}
             \zihao{0}
-            \heiti{\vspace{-2.5em}本科毕业设计（论文）}
+            \heiti{\vspace{-2.5em}研究生课程报告}
         \end{center}
         \begin{center}
             \zihao{1}
