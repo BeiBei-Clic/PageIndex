@@ -1,22 +1,143 @@
-\chapter{第二章	卷积神经网络的基础知识}
-\section{卷积神经网络的网络结构}
-卷积神经网络作为深度学习的一个分支，在网络结构上同样含有深度学习的“深度”性。网络拓扑结构是一个多层的神经网络\overcite{ref8}，网络的每一层由多个独立的神经元组成的二维平面组成。网络一般分为输入层、卷积层、池化层、全连接层、输出层等。
-\subsection{输入层}
-因为卷积神经网络可以直接的接受二维的视觉模式\overcite{ref9}，所以我们可以直接把简单预处理后的二维图像输入到输入层中。
-\subsection{输出}
-……
-\section{卷积神经网络的学习规律}
-……
-\subsection{前向传播}
-如果用$l$来表示当前的网络层，那么当前网络层的输出如\autoref{eq:fp}所示：
+%%
+% 第二章：系统设计与实现
+%%
+
+\chapter{系统设计与实现}
+\label{chap:design}
+
+\section{系统架构}
+
+PathTracer系统采用模块化设计，由以下核心组件构成：
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/pathtracer-architecture.png}
+    \caption{PathTracer系统架构图}
+    \label{fig:architecture}
+\end{figure}
+
+\subsection{模块划分}
+
+系统主要包含以下模块：
+
+\begin{itemize}
+    \item \textbf{models.py}：数据模型定义，包含分支类型枚举、代码分支、函数调用、执行路径和覆盖率报告等数据类
+    \item \textbf{tracer.py}：运行时追踪器，使用\texttt{sys.settrace}记录程序执行路径
+    \item \textbf{cfg\_builder.py}：控制流图构建器，使用AST静态分析识别所有分支点
+    \item \textbf{reporter.py}：报告生成器，计算覆盖率并生成多种格式报告
+    \item \textbf{cli.py}：命令行接口，提供用户友好的使用方式
+\end{itemize}
+
+\section{核心数据模型}
+
+\subsection{分支类型枚举}
+
+定义了程序中可能出现的控制流分支类型：
+
+\begin{table}[htbp]
+    \centering
+    \caption{分支类型说明}
+    \label{tab:branch-type}
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{类型} & \textbf{说明} \\
+        \midrule
+        SEQUENTIAL & 顺序执行 \\
+        IF & if条件语句 \\
+        ELSE & else分支 \\
+        ELIF & elif分支 \\
+        FOR & for循环 \\
+        WHILE & while循环 \\
+        TRY & try异常捕获块 \\
+        EXCEPT & except异常处理块 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{核心数据类}
+
+主要数据类包括：
+
+\begin{itemize}
+    \item \texttt{CodeBranch}：表示代码中的一个分支点，包含文件路径、行号、分支类型、结束行号、是否已执行等信息
+    \item \texttt{FunctionCall}：记录函数调用信息，包含函数名、参数、返回值、调用深度、子调用等
+    \item \texttt{ExecutionPath}：记录执行路径，包含已执行行号集合、已执行分支、函数调用列表
+    \item \texttt{CoverageReport}：覆盖率报告，包含总分支数、已执行分支数、按类型统计、覆盖率百分比等
+\end{itemize}
+
+\section{运行时追踪器实现}
+
+\subsection{追踪回调函数}
+
+核心追踪逻辑通过\texttt{\_trace\_callback}方法实现，在程序执行过程中自动记录：
+
+\begin{enumerate}
+    \item \textbf{line事件}：记录执行的代码行号
+    \item \textbf{call事件}：记录函数调用信息（函数名、参数、调用深度）
+    \item \textbf{return事件}：记录函数返回值
+\end{enumerate}
+
+\subsection{上下文管理器}
+
+使用Python的上下文管理器协议（\texttt{\_\_enter\_\_}/\texttt{\_\_exit\_\_}）简化追踪的启动和停止：
+
+\begin{lstlisting}[language=Python]
+tracer = PathTracer().trace_file("target.py")
+with tracer:
+    # 在此执行目标代码
+    result = target_function()
+# 退出with块后自动停止追踪
+\end{lstlisting}
+
+\section{控制流图构建器}
+
+\subsection{AST遍历}
+
+使用\texttt{ast}模块遍历源代码的抽象语法树，识别控制流节点：
+
+\begin{lstlisting}[language=Python]
+def _extract_branch(self, file_path, node):
+    if isinstance(node, ast.If):
+        return CodeBranch(file_path, node.lineno,
+                          BranchType.IF)
+    elif isinstance(node, ast.For):
+        return CodeBranch(file_path, node.lineno,
+                          BranchType.FOR)
+    elif isinstance(node, ast.While):
+        return CodeBranch(file_path, node.lineno,
+                          BranchType.WHILE)
+\end{lstlisting}
+
+\section{报告生成器}
+
+\subsection{覆盖率计算}
+
+报告生成器通过对比静态分支与执行路径计算覆盖率：
+
 \begin{equation}
-    \label{eq:fp}
-    {x^l} = f({u^l}),\text{其中}{u^l} = {W^l}{x^{l - 1}} + {b^l}
+    \label{eq:coverage}
+    \text{覆盖率} = \frac{\text{已执行分支数}}{\text{总分支数}} \times 100\%
 \end{equation}
-其中$f(\cdot)$为网络的输出激活函数。在本文实验中，网络的输出激活函数选用sigmoid函数，因此网络的输出均值一般来说趋于0。
-\subsection{反向传播}
-……
-\subsection{学习特征图的组合}
-……
+
+\subsection{多格式输出}
+
+支持三种报告格式：
+
+\begin{table}[htbp]
+    \centering
+    \caption{报告输出格式}
+    \label{tab:format}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{格式} & \textbf{方法} & \textbf{用途} \\
+        \midrule
+        文本 & format\_report() & 控制台输出 \\
+        JSON & format\_report\_json() & 机器处理 \\
+        HTML & format\_report\_html() & 可视化查看 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
 \section{本章小结}
-……
+
+本章详细介绍了PathTracer系统的设计与实现。系统采用模块化架构，分为数据模型、运行时追踪、静态分析、报告生成四个核心模块。通过Python标准库提供的\texttt{sys.settrace}和\texttt{ast}模块，实现了对Python程序执行路径的完整追踪和覆盖率分析功能。

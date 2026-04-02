@@ -1,19 +1,31 @@
-\chapter{补充更多细节}
+%%
+% 附录：核心源代码
+%%
 
-\section{补充图}
+\chapter{核心源代码}
+\label{app:source-code}
 
-\subsection{补充图}
+\section{数据模型 (models.py)}
+\label{sec:models}
 
-这是附录内容，应该用宋体小四号字体。
-\begin{figure}[htbp]
-        \centering
-        \includegraphics[height=6.54cm]{image/chap04/1.jpg}
-        \caption{实验训练集}
-\end{figure}
-\begin{figure}
-        \centering
-        \includegraphics[height=6.54cm]{image/chap04/2.jpg}
-        \caption{实验测试集}
-\end{figure}
+核心数据模型定义见项目源文件 \texttt{pathtracer/models.py}。
 
-\endinput
+\section{运行时追踪器 (tracer.py)}
+\label{sec:tracer}
+
+运行时追踪器实现见项目源文件 \texttt{pathtracer/tracer.py}。
+
+\section{控制流图构建器 (cfg\_builder.py)}
+\label{sec:cfg-builder}
+
+控制流图构建器实现见项目源文件 \texttt{pathtracer/cfg\_builder.py}。
+
+\section{报告生成器 (reporter.py)}
+\label{sec:reporter}
+
+报告生成器实现见项目源文件 \texttt{pathtracer/reporter.py}。
+
+\section{命令行接口 (cli.py)}
+\label{sec:cli}
+
+命令行接口实现见项目源文件 \texttt{pathtracer/cli.py}。

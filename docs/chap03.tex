@@ -1,4 +1,187 @@
-\chapter{基于卷积神经的手写数字及写字人识别算法设计}
-\section{输入输出层的设计}
-\section{隐藏层的设计}
+%%
+% 第三章：实验过程与结果
+%%
+
+\chapter{实验过程与结果}
+\label{chap:experiment}
+
+\section{实验环境}
+
+\begin{table}[htbp]
+    \centering
+    \caption{实验环境配置}
+    \label{tab:env}
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{项目} & \textbf{配置} \\
+        \midrule
+        操作系统 & Windows 11 Pro \\
+        Python版本 & 3.10+ \\
+        依赖 & 无第三方依赖（使用标准库） \\
+        开发工具 & VS Code / PyCharm \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\section{测试目标程序}
+
+\subsection{程序简介}
+
+本实验使用\texttt{agent\_pageindex.py}作为测试目标程序。该程序是一个基于LangChain的文档问答代理，具有以下特点：
+
+\begin{itemize}
+    \item 多层条件判断（参数验证、类型检查）
+    \item 循环结构（消息处理、工具调用遍历）
+    \item 函数调用（包含嵌套调用）
+    \item 异常处理（API密钥检查）
+\end{itemize}
+
+\subsection{程序结构分析}
+
+目标程序共130行代码，包含：
+
+\begin{itemize}
+    \item \texttt{\_extract\_text()}：文本提取辅助函数
+    \item \texttt{\_print\_verbose\_stream()}：详细输出流处理函数
+    \item \texttt{main()}：主函数，包含参数解析和Agent执行逻辑
+\end{itemize}
+
+\section{实验过程}
+
+\subsection{运行测试}
+
+使用PathTracer命令行工具对目标程序进行追踪：
+
+\begin{lstlisting}[language=bash, caption=测试命令]
+# 生成HTML格式报告
+python -m pathtracer.cli -f html \
+    -o coverage_report.html \
+    agent_pageindex.py -- --query "test"
+
+# 生成JSON格式报告
+python -m pathtracer.cli -f json \
+    -o coverage_report.json \
+    agent_pageindex.py -- --query "test"
+\end{lstlisting}
+
+\subsection{测试用例设计}
+
+为了验证工具功能，设计了以下测试用例：
+
+\begin{table}[htbp]
+    \centering
+    \caption{测试用例}
+    \label{tab:testcase}
+    \begin{tabular}{lll}
+        \toprule
+        \textbf{编号} & \textbf{测试内容} & \textbf{参数} \\
+        \midrule
+        TC1 & 基本查询功能 & --query "test" \\
+        TC2 & 详细输出模式 & --query "test" --verbose \\
+        TC3 & 自定义参数 & --query "test" --doc-top-k 5 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\section{实验结果}
+
+\subsection{覆盖率统计}
+
+执行TC1测试用例后的覆盖率统计结果：
+
+\begin{table}[htbp]
+    \centering
+    \caption{覆盖率统计结果}
+    \label{tab:coverage}
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{指标} & \textbf{数值} \\
+        \midrule
+        总分支数 & 22 \\
+        已执行分支数 & 7 \\
+        覆盖率 & 31.8\% \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{分支类型分布}
+
+\begin{table}[htbp]
+    \centering
+    \caption{分支类型分布}
+    \label{tab:branch-type}
+    \begin{tabular}{lcc}
+        \toprule
+        \textbf{分支类型} & \textbf{总数} & \textbf{已执行} \\
+        \midrule
+        if语句 & 17 & 5 \\
+        for循环 & 5 & 2 \\
+        while循环 & 0 & 0 \\
+        except块 & 0 & 0 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{已执行分支详情}
+
+\begin{table}[htbp]
+    \centering
+    \caption{已执行分支列表}
+    \label{tab:executed}
+    \begin{tabular}{cccl}
+        \toprule
+        \textbf{行号} & \textbf{分支类型} & \textbf{结束行} & \textbf{代码内容} \\
+        \midrule
+        25 & if & 26 & payload is None检查 \\
+        27 & if & 28 & isinstance(payload, str)检查 \\
+        88 & if & 89 & API密钥检查 \\
+        116 & if & 118 & verbose模式检查 \\
+        121 & if & 125 & result类型检查 \\
+        123 & if & 125 & messages存在检查 \\
+        129 & if & 130 & \_\_main\_\_入口检查 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{函数调用树}
+
+实验过程中记录的函数调用关系：
+
+\begin{lstlisting}[caption=函数调用树]
+main()
+  load_dotenv()
+  os.getenv("DEEPSEEK_API_KEY")
+  init_chat_model()
+  create_agent()
+  agent.invoke()
+  _extract_text()
+  print()
+\end{lstlisting}
+
+\section{结果分析}
+
+\subsection{覆盖率分析}
+
+覆盖率为31.8\%，主要原因：
+
+\begin{enumerate}
+    \item \textbf{verbose模式未触发}：\texttt{\_print\_verbose\_stream}函数（40-75行）未被调用，因为测试时未使用\texttt{--verbose}参数
+    \item \textbf{异常分支未覆盖}：API密钥存在性检查的异常分支（89行）未触发
+    \item \textbf{复杂消息处理未执行}：\texttt{\_extract\_text}函数中的列表处理分支未完全覆盖
+    \item \textbf{边缘条件}：部分边缘条件的处理逻辑未在正常流程中执行
+\end{enumerate}
+
+\subsection{改进建议}
+
+为提高覆盖率，可以：
+
+\begin{enumerate}
+    \item 添加\texttt{--verbose}参数测试
+    \item 模拟无API密钥场景
+    \item 测试不同类型的消息内容
+    \item 编写单元测试覆盖各分支
+\end{enumerate}
+
 \section{本章小结}
+
+本章详细记录了实验过程和结果。通过对\texttt{agent\_pageindex.py}的测试，验证了PathTracer工具的有效性。工具成功识别了22个控制流分支，追踪了程序执行路径，计算出31.8\%的覆盖率，并生成了详细的HTML和JSON格式报告。
