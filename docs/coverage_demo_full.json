@@ -1,0 +1,93 @@
+{
+  "coverage_percentage": 21.428571428571427,
+  "total_branches": 14,
+  "executed_branches": 3,
+  "branches_by_type": {
+    "sequential": 0,
+    "if": 7,
+    "else": 0,
+    "elif": 0,
+    "for": 4,
+    "while": 2,
+    "try": 0,
+    "except": 1
+  },
+  "file_reports": {
+    "pathtracer/demo.py": {
+      "executed_lines": [
+        1,
+        14,
+        16,
+        17,
+        19,
+        20,
+        23,
+        44,
+        59,
+        76,
+        98,
+        122,
+        161,
+        176,
+        179,
+        182,
+        183,
+        185,
+        186,
+        187,
+        190,
+        191,
+        193,
+        196,
+        197,
+        199,
+        200,
+        202,
+        203,
+        206,
+        207,
+        210,
+        211,
+        214,
+        215,
+        218,
+        219,
+        222,
+        223,
+        226,
+        227,
+        230,
+        231,
+        233,
+        236,
+        237,
+        238,
+        240,
+        241,
+        244,
+        245,
+        246,
+        249,
+        250
+      ],
+      "executed_branches": [
+        {
+          "line_no": 19,
+          "branch_type": "if",
+          "end_line": 20
+        },
+        {
+          "line_no": 241,
+          "branch_type": "for",
+          "end_line": 242
+        },
+        {
+          "line_no": 249,
+          "branch_type": "if",
+          "end_line": 250
+        }
+      ]
+    }
+  },
+  "function_calls": []
+}
