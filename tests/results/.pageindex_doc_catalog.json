@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "tree_path": "tests\\results\\EditFlows_structure.json",
+      "doc_name": "EditFlows.pdf",
+      "doc_description": "This document introduces \"Edit Flows,\" a novel non-autoregressive generative model that uses a continuous-time Markov chain of edit operations (insertion, deletion, substitution) to enable flexible, variable-length sequence generation, outperforming autoregressive and mask-based baselines on tasks like image captioning and code generation.",
+      "mtime_ns": 1774960124651818500,
+      "size": 179919
+    },
+    {
+      "tree_path": "tests\\results\\main_structure.json",
+      "doc_name": "main.pdf",
+      "doc_description": "This document is a research paper proposing \"EditFlowSR,\" a novel symbolic regression method that iteratively refines mathematical expressions using token-level edit operations, and demonstrates its superior performance in accuracy, simplicity, and speed compared to existing neural and search-based approaches on benchmark datasets.",
+      "mtime_ns": 1774959652920301200,
+      "size": 440584
+    }
+  ]
+}
