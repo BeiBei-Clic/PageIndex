@@ -1,31 +1,24 @@
 # PathTracer 使用方法
 
-## 埇用法
+追踪 Python 程序执行路径，生成覆盖率报告。
+
+## 基本用法
 
 ```bash
-# 追踪程序并显示覆盖率报告
-python -m pathtracer.cli <program.py>
-
-# 静默模式（只显示报告，不显示程序输出)
-python -m pathtracer.cli <program.py> --quiet
-
-# 保存报告到文件
-python -m pathtracer.cli <program.py> -o report.txt
+python -m pathtracer.cli <program.py>                    # 追踪并显示报告
+python -m pathtracer.cli <program.py> --quiet          # 静默模式
+python -m pathtracer.cli <program.py> -o report.txt    # 保存到文件
 ```
 
-## 传递参数给目标程序
+## 传递参数
 
 ```bash
-# 使用 -- 分隔 pathtracer 参数和目标程序参数
-python -m pathtracer.cli agent_pageindex.py -- --query "test query"
+python -m pathtracer.cli <program.py> -- --arg1 value1    # 用 -- 分隔参数
 ```
 
 ## 输出格式
 ```bash
-# HTML 格式
 python -m pathtracer.cli <program.py> --format html -o coverage.html
-
-# JSON 格式
 python -m pathtracer.cli <program.py> --format json -o coverage.json
 ```
 
