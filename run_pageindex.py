@@ -1,16 +1,29 @@
 import argparse
+import asyncio
 import os
-import json
-from pageindex import *
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+
+from pageindex.page_index import page_index_main
 from pageindex.page_index_md import md_to_tree
+from pageindex.postgres_store import upsert_pageindex_document
 from pageindex.utils import ConfigLoader
 
-DEFAULT_OUTPUT_DIR = './tests/results'
 
-if __name__ == "__main__":
+def ingest_pdf(pdf_path: str, user_opt: dict) -> object:
+    opt = ConfigLoader().load(user_opt)
+    toc_with_page_number = page_index_main(pdf_path, opt)
+    return upsert_pageindex_document(
+        source_path=pdf_path,
+        source_type='pdf',
+        result=toc_with_page_number,
+    )
+
+
+def main() -> None:
     # Set up argument parser
     parser = argparse.ArgumentParser(description='Process PDF or Markdown document and generate structure')
-    parser.add_argument('--pdf_path', type=str, help='Path to the PDF file')
+    parser.add_argument('--pdf_path', nargs='+', type=str, help='Path to PDF file(s) or directories containing PDFs')
     parser.add_argument('--md_path', type=str, help='Path to the Markdown file')
 
     parser.add_argument('--model', type=str, default=None, help='Model to use (overrides config.yaml)')
@@ -38,6 +51,8 @@ if __name__ == "__main__":
                       help='Minimum token threshold for thinning (markdown only)')
     parser.add_argument('--summary-token-threshold', type=int, default=200,
                       help='Token threshold for generating summaries (markdown only)')
+    parser.add_argument('--max-workers', type=int, default=None,
+                      help='Maximum number of PDFs processed in parallel when using directory or multiple PDF inputs')
     args = parser.parse_args()
     
     # Validate that exactly one file type is specified
@@ -45,15 +60,40 @@ if __name__ == "__main__":
         raise ValueError("Either --pdf_path or --md_path must be specified")
     if args.pdf_path and args.md_path:
         raise ValueError("Only one of --pdf_path or --md_path can be specified")
+    if args.max_workers is not None and args.max_workers <= 0:
+        raise ValueError("--max-workers must be greater than 0")
     
     if args.pdf_path:
-        # Validate PDF file
-        if not args.pdf_path.lower().endswith('.pdf'):
-            raise ValueError("PDF file must have .pdf extension")
-        if not os.path.isfile(args.pdf_path):
-            raise ValueError(f"PDF file not found: {args.pdf_path}")
-            
-        # Process PDF file
+        pdf_paths = []
+        for raw_pdf_path in args.pdf_path:
+            input_path = Path(raw_pdf_path).expanduser()
+            if not input_path.exists():
+                raise ValueError(f"PDF path not found: {raw_pdf_path}")
+            if input_path.is_file():
+                if input_path.suffix.lower() != '.pdf':
+                    raise ValueError(f"PDF file must have .pdf extension: {raw_pdf_path}")
+                pdf_paths.append(str(input_path.resolve()))
+                continue
+            if input_path.is_dir():
+                directory_pdf_paths = sorted(
+                    str(pdf_file.resolve())
+                    for pdf_file in input_path.iterdir()
+                    if pdf_file.is_file() and pdf_file.suffix.lower() == '.pdf'
+                )
+                if not directory_pdf_paths:
+                    raise ValueError(f"No PDF files found in directory: {raw_pdf_path}")
+                pdf_paths.extend(directory_pdf_paths)
+                continue
+            raise ValueError(f"Unsupported PDF path: {raw_pdf_path}")
+
+        deduplicated_pdf_paths = []
+        seen_pdf_paths = set()
+        for pdf_path in pdf_paths:
+            if pdf_path in seen_pdf_paths:
+                continue
+            seen_pdf_paths.add(pdf_path)
+            deduplicated_pdf_paths.append(pdf_path)
+
         user_opt = {
             'model': args.model,
             'toc_check_page_num': args.toc_check_pages,
@@ -64,22 +104,47 @@ if __name__ == "__main__":
             'if_add_doc_description': args.if_add_doc_description,
             'if_add_node_text': args.if_add_node_text,
         }
-        opt = ConfigLoader().load({k: v for k, v in user_opt.items() if v is not None})
+        resolved_user_opt = {k: v for k, v in user_opt.items() if v is not None}
 
-        # Process the PDF
-        toc_with_page_number = page_index_main(args.pdf_path, opt)
-        print('Parsing done, saving to file...')
-        
-        # Save results
-        pdf_name = os.path.splitext(os.path.basename(args.pdf_path))[0]    
-        output_dir = DEFAULT_OUTPUT_DIR
-        output_file = f'{output_dir}/{pdf_name}_structure.json'
-        os.makedirs(output_dir, exist_ok=True)
-        
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(toc_with_page_number, f, indent=2)
-        
-        print(f'Tree structure saved to: {output_file}')
+        if len(deduplicated_pdf_paths) == 1:
+            document = ingest_pdf(deduplicated_pdf_paths[0], resolved_user_opt)
+            print("Parsing done, saving to Postgres...")
+            print(f"document_id: {document.document_id}")
+            print(f"doc_name: {document.doc_name}")
+            print(f"source_path: {document.source_path}")
+        else:
+            max_workers = args.max_workers
+            if max_workers is None:
+                max_workers = min(len(deduplicated_pdf_paths), max(1, min(4, os.cpu_count() or 1)))
+
+            print(f"PDF count: {len(deduplicated_pdf_paths)}")
+            print(f"Parallel workers: {max_workers}")
+
+            completed_count = 0
+            failed_jobs = []
+            with ProcessPoolExecutor(max_workers=max_workers, max_tasks_per_child=1) as executor:
+                future_to_pdf_path = {
+                    executor.submit(ingest_pdf, pdf_path, resolved_user_opt): pdf_path
+                    for pdf_path in deduplicated_pdf_paths
+                }
+                for future in as_completed(future_to_pdf_path):
+                    error = future.exception()
+                    if error is not None:
+                        failed_jobs.append((future_to_pdf_path[future], error))
+                        print(f"FAILED: {future_to_pdf_path[future]}")
+                        print(f"error: {error}")
+                        continue
+                    document = future.result()
+                    completed_count += 1
+                    print(f"[{completed_count}/{len(deduplicated_pdf_paths)}] Stored document_id={document.document_id}")
+                    print(f"doc_name: {document.doc_name}")
+                    print(f"source_path: {document.source_path}")
+
+            print("Parsing done, saving to Postgres...")
+            print(f"Completed: success={completed_count} failed={len(failed_jobs)}")
+            if failed_jobs:
+                failed_paths = [pdf_path for pdf_path, _ in failed_jobs]
+                raise Exception(f"Failed PDFs: {failed_paths}")
             
     elif args.md_path:
         # Validate Markdown file
@@ -92,10 +157,7 @@ if __name__ == "__main__":
         print('Processing markdown file...')
         
         # Process the markdown
-        import asyncio
-        
         # Use ConfigLoader to get consistent defaults (matching PDF behavior)
-        from pageindex.utils import ConfigLoader
         config_loader = ConfigLoader()
         
         # Create options dict with user args
@@ -122,15 +184,16 @@ if __name__ == "__main__":
             if_add_node_id=opt.if_add_node_id
         ))
         
-        print('Parsing done, saving to file...')
-        
-        # Save results
-        md_name = os.path.splitext(os.path.basename(args.md_path))[0]    
-        output_dir = DEFAULT_OUTPUT_DIR
-        output_file = f'{output_dir}/{md_name}_structure.json'
-        os.makedirs(output_dir, exist_ok=True)
-        
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(toc_with_page_number, f, indent=2, ensure_ascii=False)
-        
-        print(f'Tree structure saved to: {output_file}')
+        document = upsert_pageindex_document(
+            source_path=args.md_path,
+            source_type='md',
+            result=toc_with_page_number,
+        )
+        print("Parsing done, saving to Postgres...")
+        print(f"document_id: {document.document_id}")
+        print(f"doc_name: {document.doc_name}")
+        print(f"source_path: {document.source_path}")
+
+
+if __name__ == "__main__":
+    main()

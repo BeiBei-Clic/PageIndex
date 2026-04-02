@@ -305,7 +305,7 @@ def toc_transformer(toc_content, model=None):
     while not (if_complete == "yes" and finish_reason == "finished"):
         attempt += 1
         if attempt > max_attempts:
-            raise Exception('Failed to complete toc transformation after maximum retries')
+            return None
         position = last_complete.rfind('}')
         if position != -1:
             last_complete = last_complete[:position+2]
@@ -598,6 +598,9 @@ def process_toc_no_page_numbers(toc_content, toc_page_list, page_list,  start_in
     page_contents=[]
     token_lengths=[]
     toc_content = toc_transformer(toc_content, model)
+    if toc_content is None:
+        logger.info('toc_transformer failed, fallback to process_no_toc')
+        return None
     logger.info(f'toc_transformer: {toc_content}')
     for page_index in range(start_index, start_index+len(page_list)):
         page_text = f"<physical_index_{page_index}>\n{page_list[page_index-start_index][0]}\n<physical_index_{page_index}>\n\n"
@@ -621,6 +624,9 @@ def process_toc_no_page_numbers(toc_content, toc_page_list, page_list,  start_in
 
 def process_toc_with_page_numbers(toc_content, toc_page_list, page_list, toc_check_page_num=None, model=None, logger=None):
     toc_with_page_number = toc_transformer(toc_content, model)
+    if toc_with_page_number is None:
+        logger.info('toc_transformer failed, fallback to process_toc_no_page_numbers')
+        return None
     logger.info(f'toc_with_page_number: {toc_with_page_number}')
 
     toc_no_page_number = remove_page_number(copy.deepcopy(toc_with_page_number))
@@ -973,6 +979,13 @@ async def meta_processor(page_list, mode=None, toc_content=None, toc_page_list=N
         toc_with_page_number = process_toc_no_page_numbers(toc_content, toc_page_list, page_list, model=opt.model, logger=logger)
     else:
         toc_with_page_number = process_no_toc(page_list, start_index=start_index, model=opt.model, logger=logger)
+
+    if toc_with_page_number is None:
+        if mode == 'process_toc_with_page_numbers':
+            return await meta_processor(page_list, mode='process_toc_no_page_numbers', toc_content=toc_content, toc_page_list=toc_page_list, start_index=start_index, opt=opt, logger=logger)
+        if mode == 'process_toc_no_page_numbers':
+            return await meta_processor(page_list, mode='process_no_toc', start_index=start_index, opt=opt, logger=logger)
+        raise Exception('Processing failed')
             
     toc_with_page_number = [item for item in toc_with_page_number if item.get('physical_index') is not None] 
     
