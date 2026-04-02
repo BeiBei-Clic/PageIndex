@@ -6,20 +6,18 @@
 
 ```bash
 .\.venv\Scripts\python.exe -m pathtracer.cli agent_pageindex.py --query "端到端符号回归是指哪一篇参考文献，作者是谁" --doc-top-k 3 --max-concurrency 3 --verbose
-
-.\.venv\Scripts\python.exe -m pathtracer.cli <program.py> --quiet
-
-.\.venv\Scripts\python.exe -m pathtracer.cli <program.py> -o report.txt
+.\.venv\Scripts\python.exe -m pathtracer.cli agent_pageindex.py --quiet --query "端到端符号回归是指哪一篇参考文献，作者是谁" --doc-top-k 3 --max-concurrency 3
+.\.venv\Scripts\python.exe -m pathtracer.cli pathtracer/demo.py -o report.txt
 ```
 
 ## 传递目标脚本参数
 
 ```bash
-.\.venv\Scripts\python.exe -m pathtracer.cli <program.py> -- --arg1 value1
-.\.venv\Scripts\python.exe -m pathtracer.cli <program.py> --arg1 value1
+.\.venv\Scripts\python.exe -m pathtracer.cli agent_pageindex.py -- --query "端到端符号回归是指哪一篇参考文献，作者是谁" --doc-top-k 3 --max-concurrency 3 --verbose
+.\.venv\Scripts\python.exe -m pathtracer.cli agent_pageindex.py --query "端到端符号回归是指哪一篇参考文献，作者是谁" --doc-top-k 3 --max-concurrency 3 --verbose
 ```
 
-`pathtracer.cli` 现在同时支持两种参数传递方式：
+`pathtracer.cli` 现在同时支持两种参数传递方式。上面两条命令等价：
 
 - 使用 `--` 显式分隔 PathTracer 自己的参数和目标脚本参数
 - 直接把目标脚本参数写在 `<program.py>` 后面
@@ -29,12 +27,12 @@
 ## 输出格式
 
 ```bash
-.\.venv\Scripts\python.exe -m pathtracer.cli <program.py> --format html -o coverage.html
-.\.venv\Scripts\python.exe -m pathtracer.cli <program.py> --format json -o coverage.json
+.\.venv\Scripts\python.exe -m pathtracer.cli --format html -o coverage.html pathtracer/demo.py
+.\.venv\Scripts\python.exe -m pathtracer.cli --format json -o coverage.json pathtracer/demo.py
 ```
 
 ## 运行演示
 
 ```bash
-.\.venv\Scripts\python.exe pathtracer/demo.py
+.\.venv\Scripts\python.exe -m pathtracer.cli pathtracer/demo.py
 ```

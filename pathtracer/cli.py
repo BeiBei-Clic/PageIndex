@@ -12,13 +12,7 @@ from .reporter import CoverageReporter
 def main():
     """Main CLI entry point."""
     raw_argv = sys.argv[1:]
-    program_index = None
-    for index, arg in enumerate(raw_argv):
-        if not arg.startswith('-'):
-            program_index = index
-            break
-
-    if program_index is None:
+    if not raw_argv:
         parser = argparse.ArgumentParser(
             description='Trace Python program execution paths and generate coverage reports'
         )
@@ -35,8 +29,27 @@ def main():
         parser.parse_args(raw_argv)
         return
 
-    cli_argv = raw_argv[:program_index + 1]
-    program_args = raw_argv[program_index + 1:]
+    cli_argv = []
+    program_args = []
+    program = None
+    index = 0
+    while index < len(raw_argv):
+        arg = raw_argv[index]
+        if arg in ('--output', '-o', '--format', '-f'):
+            if index + 1 >= len(raw_argv):
+                cli_argv.append(arg)
+                break
+            cli_argv.extend([arg, raw_argv[index + 1]])
+            index += 2
+            continue
+        if arg in ('--quiet', '-q'):
+            cli_argv.append(arg)
+            index += 1
+            continue
+        program = arg
+        cli_argv.append(arg)
+        program_args = raw_argv[index + 1:]
+        break
 
     parser = argparse.ArgumentParser(
         description='Trace Python program execution paths and generate coverage reports'
