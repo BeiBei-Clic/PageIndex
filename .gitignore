@@ -305,6 +305,7 @@ ENV/
 *.egg-info/
 dist/
 build/
+.coverage
 
 # Project specific
 logs/
