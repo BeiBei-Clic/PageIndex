@@ -2,30 +2,579 @@
 % 附录：核心源代码
 %%
 
+% 配置 listings 样式
+\lstset{
+    basicstyle=\small\ttfamily,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{gray}\itshape,
+    stringstyle=\color{red},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=5pt,
+    frame=single,
+    breaklines=true,
+    breakatwhitespace=true,
+    showstringspaces=false,
+    tabsize=4,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+    literate={"}{{\textquotedbl}}1
+             {'}{{\textquotesingle}}1,
+    upquote=true,
+    columns=flexible
+}
+
 \chapter{核心源代码}
 \label{app:source-code}
 
 \section{数据模型 (models.py)}
 \label{sec:models}
 
-核心数据模型定义见项目源文件 \texttt{pathtracer/models.py}。
+\begin{lstlisting}[language=Python, caption={数据模型定义 (pathtracer/models.py)}]
+"""PathTracer 数据模型: 定义执行路径追踪和覆盖率分析的核心数据结构"""
+
+from dataclasses import dataclass, field
+from typing import Set, Dict, List, Optional
+from enum import Enum
+
+# 枚举: 分支类型, 用于标识代码中的控制流结构
+class BranchType(Enum):
+    SEQUENTIAL = "sequential"  # 顺序执行
+    IF = "if"                  # if 条件分支
+    ELSE = "else"              # else 分支
+    ELIF = "elif"              # elif 分支
+    FOR = "for"                # for 循环
+    WHILE = "while"            # while 循环
+    TRY = "try"                # try 异常处理块
+    EXCEPT = "except"          # except 异常捕获块
+
+# 数据类: 代码分支点
+# 记录单个分支的位置、类型和执行状态
+@dataclass
+class CodeBranch:
+    file_path: str              # 源文件路径
+    line_no: int                # 分支起始行号
+    branch_type: BranchType     # 分支类型
+    end_line: int = 0           # 分支结束行号
+    is_executed: bool = False   # 是否被执行过
+
+# 数据类: 函数调用记录
+# 记录一次函数调用的完整信息, 支持嵌套调用树
+@dataclass
+class FunctionCall:
+    function_name: str                    # 函数名
+    file_path: str                        # 所在文件
+    line_no: int                          # 调用行号
+    call_depth: int                       # 调用深度 (0=顶层)
+    arguments: Dict[str, str] = field(default_factory=dict)  # 参数及值
+    return_value: Optional[str] = None    # 返回值
+    children: List['FunctionCall'] = field(default_factory=list)  # 子调用
+
+# 数据类: 执行路径
+# 记录单个文件的完整执行轨迹
+@dataclass
+class ExecutionPath:
+    file_path: str                                    # 源文件路径
+    executed_lines: Set[int] = field(default_factory=set)  # 已执行行号集合
+    executed_branches: Dict[int, CodeBranch] = field(default_factory=dict)  # 已执行分支
+    function_calls: List[FunctionCall] = field(default_factory=list)  # 函数调用列表
+
+# 数据类: 覆盖率报告
+# 汇总所有文件的覆盖率统计信息
+@dataclass
+class CoverageReport:
+    total_branches: int = 0                           # 总分支数
+    executed_branches: int = 0                        # 已执行分支数
+    branches_by_type: Dict[BranchType, int] = field(default_factory=dict)  # 按类型统计
+    coverage_percentage: float = 0.0                  # 覆盖率百分比
+    file_reports: Dict[str, ExecutionPath] = field(default_factory=dict)  # 各文件报告
+\end{lstlisting}
 
 \section{运行时追踪器 (tracer.py)}
 \label{sec:tracer}
 
-运行时追踪器实现见项目源文件 \texttt{pathtracer/tracer.py}。
+\begin{lstlisting}[language=Python, caption={运行时追踪器实现 (pathtracer/tracer.py)}]
+"""运行时追踪器: 利用 Python 的 sys.settrace 机制追踪程序执行路径"""
+
+import sys
+from typing import Optional, Callable, Set, Dict, List
+from .models import ExecutionPath, FunctionCall
+
+class PathTracer:
+    """基于 sys.settrace 的 Python 程序执行路径追踪器"""
+
+    def __init__(self):
+        self.execution_paths: Dict[str, ExecutionPath] = {}  # 各文件的执行路径
+        self._original_trace: Optional[Callable] = None      # 原始追踪函数 (用于恢复)
+        self._target_file: Optional[str] = None              # 目标追踪文件
+        self.function_calls: List[FunctionCall] = []         # 顶层函数调用列表
+        self._call_stack: List[FunctionCall] = []            # 函数调用栈 (用于追踪嵌套)
+
+    def trace_file(self, file_path: str) -> 'PathTracer':
+        """设置要追踪的目标文件, 返回 self 支持链式调用"""
+        self._target_file = file_path
+        self.execution_paths[file_path] = ExecutionPath(file_path=file_path)
+        return self
+
+    def _trace_callback(self, frame, event: str, arg) -> Optional[Callable]:
+        """sys.settrace 的回调函数, 处理各类执行事件"""
+        if not self._target_file:
+            return None
+
+        # 只追踪目标文件中的事件
+        code = frame.f_code
+        if not code.co_filename.endswith(self._target_file):
+            return self._trace_callback
+
+        # 处理 'line' 事件: 记录执行的代码行
+        if event == 'line':
+            line_no = frame.f_lineno
+            self.execution_paths[self._target_file].executed_lines.add(line_no)
+
+        # 处理 'call' 事件: 记录函数调用信息
+        elif event == 'call':
+            func_name = code.co_name
+            line_no = frame.f_lineno
+
+            # 从栈帧中提取函数参数
+            args = {}
+            try:
+                arg_count = code.co_argcount
+                arg_names = code.co_varnames[:arg_count]
+                for arg_name in arg_names:
+                    if arg_name in frame.f_locals:
+                        try:
+                            args[arg_name] = repr(frame.f_locals[arg_name])
+                        except Exception:
+                            args[arg_name] = '<unable to repr>'
+            except Exception:
+                pass
+
+            # 创建 FunctionCall 对象
+            call_depth = len(self._call_stack)
+            func_call = FunctionCall(
+                function_name=func_name,
+                file_path=code.co_filename,
+                line_no=line_no,
+                call_depth=call_depth,
+                arguments=args
+            )
+
+            # 将调用添加到父调用的 children 或顶层列表
+            if self._call_stack:
+                self._call_stack[-1].children.append(func_call)
+            else:
+                self.function_calls.append(func_call)
+                self.execution_paths[self._target_file].function_calls.append(func_call)
+
+            # 压入调用栈
+            self._call_stack.append(func_call)
+
+        # 处理 'return' 事件: 记录函数返回值
+        elif event == 'return':
+            if self._call_stack:
+                func_call = self._call_stack.pop()
+                if arg is not None:
+                    try:
+                        func_call.return_value = repr(arg)
+                    except Exception:
+                        func_call.return_value = '<unable to repr>'
+
+        return self._trace_callback
+
+    def __enter__(self):
+        """上下文管理器入口: 启动追踪"""
+        self._original_trace = sys.gettrace()
+        sys.settrace(self._trace_callback)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口: 停止追踪"""
+        sys.settrace(self._original_trace)
+        return False
+
+    def get_executed_lines(self, file_path: str) -> Set[int]:
+        """获取指定文件的已执行行号集合"""
+        if file_path in self.execution_paths:
+            return self.execution_paths[file_path].executed_lines
+        return set()
+
+    def get_function_calls(self) -> List[FunctionCall]:
+        """获取记录的所有函数调用"""
+        return self.function_calls
+\end{lstlisting}
 
 \section{控制流图构建器 (cfg\_builder.py)}
 \label{sec:cfg-builder}
 
-控制流图构建器实现见项目源文件 \texttt{pathtracer/cfg\_builder.py}。
+\begin{lstlisting}[language=Python, caption={控制流图构建器实现 (pathtracer/cfg\_builder.py)}]
+"""控制流图构建器: 通过静态分析 AST 提取代码中的所有分支点"""
+
+import ast
+from typing import List, Optional
+from .models import CodeBranch, BranchType
+
+class CFGBuilder:
+    """从 Python 源代码构建控制流图, 识别所有分支结构"""
+
+    def __init__(self):
+        self.branches: List[CodeBranch] = []  # 提取的分支列表
+
+    def build_from_file(self, file_path: str) -> List[CodeBranch]:
+        """解析 Python 文件并提取所有分支点"""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            source = f.read()
+
+        # 解析源代码为 AST
+        tree = ast.parse(source, filename=file_path)
+        self.branches = []
+
+        # 遍历 AST 查找控制流结构
+        for node in ast.walk(tree):
+            branch = self._extract_branch(file_path, node)
+            if branch:
+                self.branches.append(branch)
+
+        return self.branches
+
+    def _extract_branch(self, file_path: str, node: ast.AST) -> Optional[CodeBranch]:
+        """从 AST 节点提取分支信息"""
+
+        # if 语句
+        if isinstance(node, ast.If):
+            return CodeBranch(
+                file_path=file_path,
+                line_no=node.lineno,
+                branch_type=BranchType.IF,
+                end_line=self._get_end_line(node)
+            )
+
+        # for 循环
+        elif isinstance(node, ast.For):
+            return CodeBranch(
+                file_path=file_path,
+                line_no=node.lineno,
+                branch_type=BranchType.FOR,
+                end_line=self._get_end_line(node)
+            )
+
+        # while 循环
+        elif isinstance(node, ast.While):
+            return CodeBranch(
+                file_path=file_path,
+                line_no=node.lineno,
+                branch_type=BranchType.WHILE,
+                end_line=self._get_end_line(node)
+            )
+
+        # try/except 异常处理
+        elif isinstance(node, ast.ExceptHandler):
+            return CodeBranch(
+                file_path=file_path,
+                line_no=node.lineno,
+                branch_type=BranchType.EXCEPT,
+                end_line=self._get_end_line(node)
+            )
+
+        return None
+
+    def _get_end_line(self, node: ast.AST) -> int:
+        """获取代码块的最后一行行号"""
+        # Python 3.8+ 支持 end_lineno 属性
+        if hasattr(node, 'end_lineno') and node.end_lineno is not None:
+            return node.end_lineno
+        # 递归查找 body 中最大的行号
+        if hasattr(node, 'body') and node.body:
+            return max(self._get_end_line(n) for n in node.body)
+        return getattr(node, 'lineno', 0)
+
+    def get_branches_by_type(self, branch_type: BranchType) -> List[CodeBranch]:
+        """按类型筛选分支"""
+        return [b for b in self.branches if b.branch_type == branch_type]
+\end{lstlisting}
 
 \section{报告生成器 (reporter.py)}
 \label{sec:reporter}
 
-报告生成器实现见项目源文件 \texttt{pathtracer/reporter.py}。
+\begin{lstlisting}[language=Python, caption={报告生成器实现 (pathtracer/reporter.py)}]
+"""覆盖率报告生成器: 对比运行时追踪结果与静态 CFG 分析, 生成覆盖率报告"""
+
+import json
+from typing import Dict, Any, List
+from .models import CodeBranch, ExecutionPath, CoverageReport, BranchType, FunctionCall
+from .cfg_builder import CFGBuilder
+from .tracer import PathTracer
+
+class CoverageReporter:
+    """生成覆盖率报告: 比较追踪路径与控制流图"""
+
+    def __init__(self):
+        self.cfg_builder = CFGBuilder()  # 用于静态分析
+
+    def analyze(self, file_path: str, tracer: PathTracer) -> CoverageReport:
+        """分析指定文件的覆盖率"""
+        # 静态分析: 获取所有分支
+        all_branches = self.cfg_builder.build_from_file(file_path)
+
+        # 运行时数据: 获取已执行的行
+        executed_lines = tracer.get_executed_lines(file_path)
+
+        # 标记已执行的分支
+        for branch in all_branches:
+            if branch.line_no in executed_lines:
+                branch.is_executed = True
+
+        # 计算统计数据
+        total = len(all_branches)
+        executed = sum(1 for b in all_branches if b.is_executed)
+
+        # 按分支类型统计
+        by_type: Dict[BranchType, int] = {}
+        for branch_type in BranchType:
+            type_branches = [b for b in all_branches if b.branch_type == branch_type]
+            by_type[branch_type] = len(type_branches)
+
+        # 构建并返回覆盖率报告
+        return CoverageReport(
+            total_branches=total,
+            executed_branches=executed,
+            branches_by_type=by_type,
+            coverage_percentage=(executed / total * 100) if total > 0 else 0.0,
+            file_reports={file_path: ExecutionPath(
+                file_path=file_path,
+                executed_lines=executed_lines,
+                executed_branches={b.line_no: b for b in all_branches if b.is_executed}
+            )}
+        )
+
+    def format_report(self, report: CoverageReport) -> str:
+        """将覆盖率报告格式化为可读文本"""
+        lines = [
+            "=" * 60,
+            "EXECUTION PATH COVERAGE REPORT",
+            "=" * 60,
+            "",
+            f"Total Branches: {report.total_branches}",
+            f"Executed Branches: {report.executed_branches}",
+            f"Coverage: {report.coverage_percentage:.1f}%",
+            "",
+            "Branches by Type:",
+        ]
+
+        # 按类型输出分支统计
+        for branch_type, count in report.branches_by_type.items():
+            if count > 0:
+                lines.append(f"  {branch_type.value:12s}: {count}")
+
+        lines.extend([
+            "",
+            "=" * 60,
+            "EXECUTED BRANCHES:",
+            "-" * 60,
+        ])
+
+        # 输出各文件的已执行分支详情
+        for file_path, exec_path in report.file_reports.items():
+            lines.append(f"\n{file_path}:")
+            for line_no, branch in sorted(exec_path.executed_branches.items()):
+                lines.append(
+                    f"  Line {branch.line_no:4d}: {branch.branch_type.value:10s} [executed]"
+                )
+
+        return "\n".join(lines)
+
+    def format_report_json(self, report: CoverageReport) -> str:
+        """将覆盖率报告格式化为 JSON (便于程序处理)"""
+        data: Dict[str, Any] = {
+            "coverage_percentage": report.coverage_percentage,
+            "total_branches": report.total_branches,
+            "executed_branches": report.executed_branches,
+            "branches_by_type": {
+                bt.value: count for bt, count in report.branches_by_type.items()
+            },
+            "file_reports": {},
+            "function_calls": []
+        }
+
+        # 构建各文件的报告数据
+        for file_path, exec_path in report.file_reports.items():
+            file_data: Dict[str, Any] = {
+                "executed_lines": sorted(list(exec_path.executed_lines)),
+                "executed_branches": []
+            }
+            for line_no, branch in sorted(exec_path.executed_branches.items()):
+                file_data["executed_branches"].append({
+                    "line_no": branch.line_no,
+                    "branch_type": branch.branch_type.value,
+                    "end_line": branch.end_line
+                })
+            data["file_reports"][file_path] = file_data
+
+            # 包含函数调用信息
+            if exec_path.function_calls:
+                data["function_calls"] = self._serialize_function_calls(
+                    exec_path.function_calls
+                )
+
+        return json.dumps(data, indent=2)
+
+    def _serialize_function_calls(self, calls: List[FunctionCall]) -> List[Dict[str, Any]]:
+        """递归序列化函数调用树为 JSON 可用的字典列表"""
+        result = []
+        for call in calls:
+            call_dict = {
+                "function_name": call.function_name,
+                "file_path": call.file_path,
+                "line_no": call.line_no,
+                "call_depth": call.call_depth,
+                "arguments": call.arguments,
+                "return_value": call.return_value,
+                "children": self._serialize_function_calls(call.children)  # 递归处理子调用
+            }
+            result.append(call_dict)
+        return result
+\end{lstlisting}
 
 \section{命令行接口 (cli.py)}
 \label{sec:cli}
 
-命令行接口实现见项目源文件 \texttt{pathtracer/cli.py}。
+\begin{lstlisting}[language=Python, caption={命令行接口实现 (pathtracer/cli.py)}]
+"""PathTracer 命令行接口: 提供用户友好的命令行交互方式"""
+
+import sys
+import argparse
+import io
+from pathlib import Path
+from .tracer import PathTracer
+from .reporter import CoverageReporter
+
+def main():
+    """CLI 主入口函数"""
+    raw_argv = sys.argv[1:]
+
+    # 无参数时显示帮助信息
+    if not raw_argv:
+        parser = argparse.ArgumentParser(
+            description='Trace Python program execution paths and generate coverage reports'
+        )
+        parser.add_argument('program', help='Python program file to trace')
+        parser.add_argument('--output', '-o', help='Output file for report', default=None)
+        parser.add_argument('--quiet', '-q', help='Only output report', action='store_true')
+        parser.add_argument(
+            '--format', '-f',
+            choices=['text', 'html', 'json'],
+            default='text',
+            help='Output format: text, html, or json (default: text)'
+        )
+        parser.add_argument('program_args', nargs='*', help='Arguments for target program')
+        parser.parse_args(raw_argv)
+        return
+
+    # 解析 CLI 参数与目标程序参数 (以第一个位置参数为分界)
+    cli_argv = []
+    program_args = []
+    program = None
+    index = 0
+    while index < len(raw_argv):
+        arg = raw_argv[index]
+        # 处理带值的选项
+        if arg in ('--output', '-o', '--format', '-f'):
+            if index + 1 >= len(raw_argv):
+                cli_argv.append(arg)
+                break
+            cli_argv.extend([arg, raw_argv[index + 1]])
+            index += 2
+            continue
+        # 处理标志选项
+        if arg in ('--quiet', '-q'):
+            cli_argv.append(arg)
+            index += 1
+            continue
+        # 第个位置参数是目标程序, 后续为其参数
+        program = arg
+        cli_argv.append(arg)
+        program_args = raw_argv[index + 1:]
+        break
+
+    # 构建参数解析器
+    parser = argparse.ArgumentParser(
+        description='Trace Python program execution paths and generate coverage reports'
+    )
+    parser.add_argument('program', help='Python program file to trace')
+    parser.add_argument('--output', '-o', help='Output file for report', default=None)
+    parser.add_argument('--quiet', '-q', help='Only output report', action='store_true')
+    parser.add_argument(
+        '--format', '-f',
+        choices=['text', 'html', 'json'],
+        default='text',
+        help='Output format: text, html, or json (default: text)'
+    )
+    parser.add_argument('program_args', nargs='*', help='Arguments for target program')
+
+    args = parser.parse_args(cli_argv)
+
+    # 检查目标文件是否存在
+    if not Path(args.program).exists():
+        print(f"Error: File not found: {args.program}", file=sys.stderr)
+        sys.exit(1)
+
+    # 处理参数分隔符 --
+    if program_args[:1] == ['--']:
+        program_args = program_args[1:]
+
+    # 创建追踪器并设置目标文件
+    tracer = PathTracer().trace_file(args.program)
+
+    # 静默模式: 捕获目标程序的 stdout
+    if args.quiet:
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+    old_argv = sys.argv
+    reporter = CoverageReporter()
+
+    try:
+        # 设置 sys.argv 以便目标程序获取正确参数
+        sys.argv = [args.program] + program_args
+        # 在追踪上下文中执行目标程序
+        with tracer:
+            with open(args.program) as f:
+                code = compile(f.read(), args.program, 'exec')
+                exec(code, {'__name__': '__main__', '__file__': args.program})
+    finally:
+        # 恢复 sys.argv 和 stdout
+        sys.argv = old_argv
+        if args.quiet:
+            sys.stdout = old_stdout
+
+        # 生成覆盖率报告
+        report = reporter.analyze(args.program, tracer)
+
+        # 根据格式选择输出方法
+        if args.format == 'json':
+            output = reporter.format_report_json(report)
+        elif args.format == 'html':
+            output = reporter.format_report_html(report)
+        else:
+            output = reporter.format_report(report)
+
+        # 确定输出文件
+        output_file = args.output
+        if not output_file:
+            if args.format == 'html':
+                output_file = 'coverage-report.html'
+            elif args.format == 'json':
+                output_file = 'coverage-report.json'
+
+        # 输出报告
+        if output_file:
+            with open(output_file, 'w') as f:
+                f.write(output)
+            print(f"Report written to: {output_file}")
+        else:
+            print(output)
+
+if __name__ == '__main__':
+    main()
+\end{lstlisting}

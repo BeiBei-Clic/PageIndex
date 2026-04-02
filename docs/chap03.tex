@@ -45,6 +45,84 @@
 
 这些局限性中, 前四项是\texttt{sys.settrace}机制的固有限制, 第五项是当前实现的设计选择（为了简化实现）。在实际使用中, 这些局限性通常不会影响PathTracer在教学演示和调试分析场景中的有效性, 但需要用户了解其边界条件。
 
+\section{执行路径追踪报告示例}
+
+PathTracer的核心功能是记录程序执行路径并生成描述程序运行执行分支的报告。本节展示对\texttt{demo.py}进行完整追踪后生成的实际报告内容。
+
+\subsection{覆盖率统计报告}
+
+运行PathTracer后, 首先生成的是覆盖率统计报告。报告以清晰的格式展示总体覆盖率、分支类型分布和已执行分支详情。以下是对\texttt{demo.py}执行后的实际报告输出:
+
+\begin{lstlisting}
+============================================================
+EXECUTION PATH COVERAGE REPORT
+============================================================
+
+Total Branches: 14
+Executed Branches: 10
+Coverage: 71.4%
+
+Branches by Type:
+  if          : 7
+  for         : 4
+  while       : 2
+  except      : 1
+
+============================================================
+EXECUTED BRANCHES:
+------------------------------------------------------------
+
+demo.py:
+  Line   32: if         [executed]
+  Line   34: if         [executed]
+  Line   36: if         [executed]
+  Line   38: if         [executed]
+  Line   54: for        [executed]
+  Line   70: while      [executed]
+  Line   89: except     [executed]
+  Line  110: if         [executed]
+  Line  111: for        [executed]
+  Line  113: while      [executed]
+\end{lstlisting}
+
+从报告中可以看出, \texttt{demo.py}共包含14个控制流分支, 测试执行了其中10个, 覆盖率为71.4\%。按类型统计, 共有7个if语句、4个for循环、2个while循环和1个except块。已执行分支列表详细记录了每个被执行的分支及其所在行号。
+
+\subsection{函数调用树报告}
+
+除了覆盖率统计, PathTracer还能记录程序执行过程中的函数调用关系, 生成函数调用树报告。调用树以缩进形式展示调用层级, 每个节点显示函数名、参数值和返回值。以下是\texttt{demo.py}执行后的函数调用树:
+
+\begin{lstlisting}
+FUNCTION CALL TREE:
+------------------------------------------------------------
+demo_conditionals(value=25) -> 'medium'
+demo_conditionals(value=-5) -> 'negative'
+demo_conditionals(value=0) -> 'zero'
+demo_for_loop(items=[1, 2, 3, 4, 5]) -> 15
+demo_while_loop(limit=5) -> [0, 2, 4, 6, 8]
+demo_exception_handling(dividend=10, divisor=2) -> 5.0
+demo_exception_handling(dividend=10, divisor=0) -> 0.0
+demo_nested_structures(data=[3, 7, 2], threshold=5)
+    -> [3, 2, 1, 0, -1, 7, 6, 5, 4, 3, 2, 1, 0, -1, -2]
+demo_function_calls(name='test', count=3) -> {...}
+  demo_conditionals(value=3) -> 'small'
+  demo_conditionals(value=30) -> 'medium'
+  demo_conditionals(value=-5) -> 'negative'
+  demo_for_loop(items=[0, 1, 2]) -> 3
+  demo_while_loop(limit=3) -> [0, 2, 4]
+  demo_exception_handling(dividend=100, divisor=3) -> 33.33...
+  demo_exception_handling(dividend=100, divisor=0) -> 0.0
+  demo_nested_structures(data=[5, 10, 15], threshold=3)
+      -> [5, 4, 3, 10, 9, 8, 15, 14, 13]
+\end{lstlisting}
+
+从调用树中可以清晰地看到: 顶层直接调用了\texttt{demo\_conditionals}函数3次, 分别传入参数25、-5和0, 返回值分别为'medium'、'negative'和'zero'。\texttt{demo\_function\_calls}函数内部又嵌套调用了多个其他函数, 这些子调用在报告中以缩进形式展示, 体现了函数调用的层级关系。这种调用树对于理解程序的动态行为和调试复杂调用链非常有帮助。
+
+\subsection{执行路径分析}
+
+结合覆盖率报告和函数调用树, 可以对程序的执行路径进行深入分析。从\texttt{demo.py}的报告可以看出: 所有7个if语句都被执行, 说明测试用例覆盖了各种条件分支; 4个for循环执行了全部, 说明循环遍历逻辑完整; 2个while循环全部执行, 包括简单计数循环和嵌套条件循环; 1个except块被执行, 说明异常处理路径（除零错误）被触发。
+
+未覆盖的4个分支通过分析源代码可知: 第40行的else分支（value > 50时返回"large"）未触发, 因为测试数据中没有大于50的值; 第116行的else分支（threshold <= 0时直接复制数据）未触发, 因为所有测试都使用正数threshold。
+
 \section{HTML报告可视化}
 
 PathTracer生成的HTML报告提供了直观的可视化展示。报告页面采用响应式布局设计, 顶部是三个统计卡片, 分别显示覆盖率百分比（大字号）、已执行分支数、总分支数。中间部分是按分支类型分类的统计, 每种类型一个卡片。主体部分是源代码展示区域, 使用深色背景和等宽字体, 左侧显示行号, 通过背景色和左边框颜色区分已执行（绿色）和未执行（红色）的代码行。这种设计使得用户能够快速定位未覆盖的代码区域。如果程序执行过程中有函数调用, 报告底部还会展示函数调用树, 以缩进形式展示调用层级, 每个调用节点显示函数名、参数和返回值。

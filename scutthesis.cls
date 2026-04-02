@@ -63,13 +63,10 @@
 % % 图片插入
 \RequirePackage{graphicx} % 用于插入图片
 \RequirePackage{wrapfig} % 用于图片的环绕排版
-\RequirePackage[labelsep=space]{caption}
+\RequirePackage[labelsep=space,font=footnotesize,tableposition=top]{caption}
 \RequirePackage[font=footnotesize]{subcaption} % 用于插入子图片
 
 \RequirePackage[absolute]{textpos} %绝对位置控制
-
-% % 符号说明
-\RequirePackage{nomencl} % 用于制作符号说明
 
 % % 伪代码
 \RequirePackage[onelanguage,linesnumbered,algochapter,ruled,vlined]{algorithm2e}
@@ -143,9 +140,6 @@
     AutoFakeSlant
 ]
 
-
-% 插图和表格标题设置
-\RequirePackage[font=footnotesize,tableposition=top]{caption} % 设置插图和表格标题字体和位置
 
 % 参考文献设置
 \RequirePackage[numbers,sort&compress]{natbib} % 设置参考文献格式
