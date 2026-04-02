@@ -34,6 +34,11 @@ def main():
         default='text',
         help='Output format: text, html, or json (default: text)'
     )
+    parser.add_argument(
+        'program_args',
+        nargs='*',
+        help='Arguments to pass to the target program'
+    )
 
     args = parser.parse_args()
 
@@ -46,27 +51,29 @@ def main():
 
     # Execute the target program
     if args.quiet:
-        # Suppress program output
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
 
-    with tracer:
-        try:
-            with open(args.program) as f:
-                code = compile(f.read(), args.program, 'exec')
-                exec(code, {'__name__': '__main__'})
-        except Exception as e:
-            print(f"Error executing program: {e}", file=sys.stderr)
-            sys.exit(1)
-        finally:
-            if args.quiet:
-                sys.stdout = old_stdout
+    old_argv = sys.argv
+    sys.argv = [args.program] + args.program_args
+
+    try:
+        with open(args.program) as f:
+            code = compile(f.read(), args.program, 'exec')
+            exec(code, {'__name__': '__main__'})
+    except Exception as e:
+        print(f"Error executing program: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        sys.argv = old_argv
+        if args.quiet:
+            sys.stdout = old_stdout
 
     # Generate report
     reporter = CoverageReporter()
     report = reporter.analyze(args.program, tracer)
 
-    # Select formatter based on format option
+    # Select output format
     if args.format == 'json':
         output = reporter.format_report_json(report)
     elif args.format == 'html':
