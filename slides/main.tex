@@ -8,9 +8,9 @@
 %	TITLE PAGE
 %----------------------------------------------------------------------------------------
 
-\title{PageIndex}
-\subtitle{Vectorless, Reasoning-based RAG}
-\author{许宇鸿}
+\title{代码覆盖率及路径分析检测}
+\subtitle{软件测试课程大作业}
+\author{徐宇鸿}
 \institute
 {
 计算机科学与工程学院 \\ % Your institution for the title page
@@ -25,109 +25,403 @@
 \end{frame}
 
 \begin{frame}
-\frametitle{Overview}
+\frametitle{目录}
 \tableofcontents
 \end{frame}
 
-%----------------------------------------------------------------------------------------
-%	PRESENTATION SLIDES
-%----------------------------------------------------------------------------------------
+%========================================================================================
+%	第一部分：什么是路径分析
+%========================================================================================
 
-\section{研究背景}
-\begin{frame}
-\frametitle{研究背景：传统 RAG 的局限}
-\begin{itemize}
-    \item 传统向量检索依赖\textbf{语义相似度}而非真正的\textbf{相关性}
-    \item 向量化需要 Chunking（分块），破坏文档原有结构
-    \item 长文档场景下检索精度不足，缺乏可解释性
-    \item 专业领域文档（金融、法律、学术）需要\textbf{多步推理}才能找到关键信息
-\end{itemize}
-\vspace{0.5cm}
-\centering
-\textbf{核心洞察：Similarity $\neq$ Relevance — 真正的检索需要推理能力}
-\end{frame}
+\section{什么是路径分析与覆盖率}
 
-%------------------------------------------------
+\begin{frame}[fragile]
+\frametitle{程序执行路径与三种基本结构}
+{\small 程序运行时并非所有代码都会被执行——\textbf{条件分支}和\textbf{循环}决定了程序走哪条路。%
+\textbf{路径分析}就是追踪程序\emph{实际走了哪些路}，找出\emph{哪些路从未走过}。}
 
-\section{PageIndex 框架}
-\begin{frame}
-\frametitle{PageIndex：无向量、基于推理的 RAG}
-受 AlphaGo 启发，PageIndex 提出了一种全新的检索范式：
-\begin{enumerate}
-    \item \textbf{树结构索引}：将长文档转化为层次化的"目录"树
-    \item \textbf{推理式检索}：利用 LLM 在树结构上进行推理式搜索
-    \item \textbf{类人检索}：模拟人类专家浏览和提取知识的方式
-\end{enumerate}
-\vspace{0.3cm}
-\begin{block}{核心特点}
-\begin{itemize}
-    \item 无需向量数据库（No Vector DB）
-    \item 无需分块处理（No Chunking）
-    \item 更好的可解释性与可追溯性
-\end{itemize}
+\vspace{0.15cm}
+\begin{columns}[T]
+\begin{column}{0.30\textwidth}
+\begin{block}{\small 顺序结构}
+{\scriptsize
+代码从上到下依次执行，\textbf{只有一条路径}，不存在分支。\\[2pt]
+\texttt{x = 1}\\
+\texttt{y = x + 2}\\
+\texttt{print(y)}}
 \end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{\small 选择结构（分支）}
+{\scriptsize
+根据条件走\textbf{不同分支}，产生\textbf{多条路径}。\\[2pt]
+\texttt{if x > 0:}\\
+\texttt{~~return "正"}\\
+\texttt{elif x == 0:}\\
+\texttt{~~return "零"}\\
+\texttt{else:}\\
+\texttt{~~return "负"}}
+\end{block}
+\end{column}
+\begin{column}{0.34\textwidth}
+\begin{block}{\small 循环结构}
+{\scriptsize
+重复执行某段代码，循环次数影响路径。\\[2pt]
+\texttt{for i in range(n):}\\
+\texttt{~~total += i}\\[3pt]
+\texttt{while x > 0:}\\
+\texttt{~~x = x // 2}}
+\end{block}
+\end{column}
+\end{columns}
+
+\vspace{0.15cm}
+{\small\textbf{分支覆盖率}衡量的是：程序中所有分支点里，有多少被测试执行过。}
+\[
+\text{分支覆盖率} = \frac{\text{已执行的分支数}}{\text{总分支数}} \times 100\%
+\]
+
+{\small 例：程序有 5 个分支（3 个 \texttt{if} + 1 个 \texttt{for} + 1 个 \texttt{try}），运行后走了 3 个 $\Rightarrow$ 覆盖率 $60\%$。覆盖率越高 $\Rightarrow$ 测试越充分，隐藏 bug 越少。}
 \end{frame}
 
 %------------------------------------------------
 
 \begin{frame}
-\frametitle{两步工作流程}
-\textbf{Step 1: 树结构索引生成}
-\begin{itemize}
-    \item 解析 PDF 文档，生成层次化树索引
-    \item 每个节点包含标题、页码范围、摘要
-\end{itemize}
-\vspace{0.3cm}
-\textbf{Step 2: 推理式树搜索}
-\begin{itemize}
-    \item LLM 在树结构上进行逐层推理
-    \item 根据问题语义选择最相关的分支
-    \item 返回精确的页码和段落引用
-\end{itemize}
+\frametitle{路径分析与软件测试的关系}
+{\small 路径分析是白盒测试的核心手段——通过追踪程序内部执行路径，量化测试的\textbf{充分性}。}
+
+\vspace{0.15cm}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+{\small\textbf{测试流程：}}
+\begin{enumerate}\setlength{\itemsep}{1pt}
+    \item \textbf{静态分析}：解析源码，找出所有分支点（\texttt{if/for/while/try}）
+    \item \textbf{设计测试用例}：构造不同输入，尽可能覆盖每条分支
+    \item \textbf{动态追踪}：运行程序，记录实际走了哪些行/分支
+    \item \textbf{计算覆盖率}：对比静态分支与动态执行结果
+    \item \textbf{补充测试}：对未覆盖分支补充测试用例，提升覆盖率
+\end{enumerate}
+\end{column}
+\begin{column}{0.42\textwidth}
+\begin{alertblock}{\small 为什么要做路径分析？}
+{\scriptsize
+如果不追踪执行路径，你\textbf{无法知道}某段 \texttt{else} 分支是否被测试过。\\[3pt]
+\textbf{未覆盖 $=$ 未测试 $=$ 可能藏有 bug}\\[3pt]
+典型场景：
+\begin{itemize}\setlength{\itemsep}{0pt}
+    \item 异常处理（\texttt{except}）从未触发
+    \item 边界条件（\texttt{elif}）从未命中
+    \item 循环体从未进入或从未跳过
+\end{itemize}}
+\end{alertblock}
+\end{column}
+\end{columns}
+
+\vspace{0.15cm}
+{\small\textbf{本作业目标}：编写 PathTracer 工具，自动完成上述步骤 1–4，生成描述程序执行分支的覆盖率报告。}
+\end{frame}
+
+%========================================================================================
+%	第二部分：核心概念
+%========================================================================================
+
+\section{核心概念与工作原理}
+
+\begin{frame}
+\frametitle{整体流程概览}
+路径分析工具的工作分为三个阶段：
+
+\vspace{0.5cm}
+\begin{enumerate}
+    \item \textbf{静态分析}——不运行程序，用 Python 的 \texttt{ast} 模块解析源码，找出所有分支点（if / for / while / try）
+    \vspace{0.3cm}
+    \item \textbf{动态追踪}——运行程序，用 \texttt{sys.settrace()} 在虚拟机级别钩住每一步执行，记录实际走了哪些行
+    \vspace{0.3cm}
+    \item \textbf{覆盖率计算}——对比两份结果：分支点所在行是否出现在已执行行号集合中，得到覆盖率百分比
+\end{enumerate}
 \end{frame}
 
 %------------------------------------------------
 
 \begin{frame}[fragile]
-\frametitle{树结构索引示例}
+\frametitle{静态分析（1/2）：AST——抽象语法树是什么？}
+{\small Python 执行代码前会先把源码经过\textbf{词法分析}$\rightarrow$\textbf{语法分析}$\rightarrow$变成 AST（一棵树），再由虚拟机执行。%
+\texttt{ast} 模块让我们能直接访问这棵树。}
+
+\vspace{0.2cm}
 \begin{columns}[T]
-\begin{column}{0.5\textwidth}
-\begin{block}{JSON 结构}
-\tiny
+\begin{column}{0.45\textwidth}
+\begin{block}{\small 一段简单的源码}
+{\small
 \begin{verbatim}
-{
-  "title": "Financial Stability",
-  "node_id": "0006",
-  "start_index": 21,
-  "end_index": 22,
-  "summary": "The Federal Reserve ...",
-  "nodes": [
-    {
-      "title": "Monitoring ...",
-      "node_id": "0007",
-      "start_index": 22,
-      "end_index": 28
-    },
-    {
-      "title": "Cooperation ...",
-      "node_id": "0008",
-      "start_index": 28,
-      "end_index": 31
-    }
-  ]
-}
-\end{verbatim}
+def f(x):
+    if x > 0:
+        return 1
+    else:
+        return -1
+\end{verbatim}}
 \end{block}
 \end{column}
+\begin{column}{0.52\textwidth}
+\begin{block}{\small 对应的 AST 树形结构}
+{\small
+\texttt{Module} \\
+\texttt{~~$\hookrightarrow$ FunctionDef(name='f')} \\
+\texttt{~~~~~~$\hookrightarrow$ If(test=Compare(x>0))} \\
+\texttt{~~~~~~~~~~$\hookrightarrow$ Return(Constant(1))} \\
+\texttt{~~~~~~~~~~$\hookrightarrow$ orelse:} \\
+\texttt{~~~~~~~~~~~~~~$\hookrightarrow$ Return(Constant(-1))}}
+
+\vspace{0.15cm}
+{\small 每个 \texttt{if}/\texttt{for}/\texttt{while}/\texttt{try} 在树中都有\textbf{对应的节点类型}：\texttt{ast.If}、\texttt{ast.For}……}
+\end{block}
+\end{column}
+\end{columns}
+
+\vspace{0.2cm}
+{\small\textbf{关键点：}我们不需要自己写解析器——Python 标准库 \texttt{ast.parse()} 一行调用就能把任意源码变成这棵树。然后用 \texttt{ast.walk(tree)} 深度优先遍历所有节点，逐个检查类型即可。}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{静态分析（2/2）：项目中的实现——\texttt{cfg\_builder.py}}
+{\small 前一页讲了 AST 的原理。现在来看我们项目中\textbf{实际写的代码}：\\
+\texttt{cfg\_builder.py} 用 \texttt{ast} 模块遍历语法树，识别每种控制流节点，提取分支信息。}
+
+\vspace{0.05cm}
+{\scriptsize
+\begin{verbatim}
+class CFGBuilder:
+    def build_from_file(self, file_path):
+        source = open(file_path).read()
+        tree = ast.parse(source)               # 源码 -> AST树
+        for node in ast.walk(tree):            # 遍历所有节点
+            branch = self._extract_branch(node)
+            if branch:
+                self.branches.append(branch)
+
+    def _extract_branch(self, node):
+        if isinstance(node, ast.If):
+            return CodeBranch(line_no=node.lineno,
+                branch_type=BranchType.IF, end_line=node.end_lineno)
+        elif isinstance(node, ast.For):
+            return CodeBranch(..., BranchType.FOR)
+        elif isinstance(node, ast.While):
+            return CodeBranch(..., BranchType.WHILE)
+        elif isinstance(node, ast.ExceptHandler):
+            return CodeBranch(..., BranchType.EXCEPT)
+        return None   # 其他节点不产生分支
+\end{verbatim}}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{前置知识（1/2）：源码 $\rightarrow$ 字节码}
+{\footnotesize 要理解动态追踪的原理，需要先了解 Python 代码的执行过程。}
+
+\vspace{0.1cm}
+\begin{block}{\footnotesize Python \textbf{不会}直接执行你写的代码}
+{\footnotesize 它先把源码\textbf{编译}成``字节码''（Bytecode）——一种简化的中间指令。源码的一行可能对应多条字节码指令。\\
+可以用 Python 内置的 \texttt{dis} 模块查看：}
+\end{block}
+
+\vspace{0.1cm}
+\begin{columns}[T]
+\begin{column}{0.35\textwidth}
+\begin{block}{\footnotesize 你写的源码}
+{\footnotesize
+\begin{verbatim}
+x = 1 + 2
+\end{verbatim}}
+\end{block}
+\end{column}
+\begin{column}{0.60\textwidth}
+\begin{block}{\footnotesize 翻译后的字节码}
+{\footnotesize
+\begin{verbatim}
+LOAD_CONST    1    # 取出数字 1
+LOAD_CONST    2    # 取出数字 2
+BINARY_ADD         # 做加法
+STORE_NAME    x    # 存到变量 x
+\end{verbatim}}
+\end{block}
+\end{column}
+\end{columns}
+
+\vspace{0.1cm}
+{\footnotesize \textbf{类比：}源码像``中文''，字节码像``英文''，虚拟机能读懂英文并逐条执行。我们不需要手写字节码——Python 自动完成翻译。}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{前置知识（2/2）：虚拟机与栈帧}
+{\footnotesize CPython 虚拟机（Virtual Machine）是一个用 C 语言写的\textbf{大循环}，它逐条读取字节码并执行。}
+
+\vspace{0.1cm}
+\begin{block}{\footnotesize 栈帧（Frame）——虚拟机的``笔记本''}
+{\footnotesize 每条字节码执行时，虚拟机维护一个\textbf{栈帧}，里面记录着当前执行状态：\\[3pt]
+\quad $\bullet$ \texttt{f\_lineno} —— 当前执行到源码\textbf{第几行}\\
+\quad $\bullet$ \texttt{f\_locals} —— 当前所有\textbf{局部变量}的值\\
+\quad $\bullet$ \texttt{f\_code.co\_name} —— 当前在\textbf{哪个函数}里\\
+\quad $\bullet$ \texttt{f\_code.co\_varnames} —— 函数的\textbf{参数名}列表}
+\end{block}
+
+\vspace{0.1cm}
+\begin{block}{\footnotesize 调用栈（Call Stack）——函数嵌套的``俄罗斯套娃''}
+{\footnotesize 当函数 A 调用函数 B 时，虚拟机会创建一个新的栈帧压入\textbf{调用栈}。函数返回时弹出。\\[3pt]
+调用栈让虚拟机知道：``执行完后该回到哪里继续''。\\[3pt]
+\textbf{关键：}\texttt{sys.settrace()} 就是让虚拟机在每条字节码执行前后``暂停一下''，把当前栈帧交给你检查。这样你就能知道程序执行到了哪一行、变量是什么值。}
+\end{block}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{动态追踪（1/2）：\texttt{sys.settrace()} 的工作机制}
+{\footnotesize \texttt{sys.settrace()} 是 CPython 虚拟机提供的\textbf{调试钩子}——不需要修改被追踪程序的源码，从``外部''监控执行。}
+
+\vspace{0.1cm}
+\begin{block}{\footnotesize 底层原理}
+{\footnotesize CPython 的主执行循环（\texttt{Python/ceval.c}）在每条\textbf{字节码}执行前后，都会检查是否设置了 trace function（即你通过 \texttt{sys.settrace(回调函数)} 注册的那个函数）。如果有，就暂停执行，把\textbf{栈帧}传给你的回调函数。这是\textbf{解释器级别}的钩子——不需要修改被追踪的代码。}
+\end{block}
+
+\vspace{0.1cm}
+\begin{block}{\footnotesize 回调函数接收的三个参数}
+{\footnotesize
+\begin{tabular}{lp{7.5cm}}
+\toprule
+\textbf{参数} & \textbf{含义} \\
+\midrule
+\texttt{frame} & 当前\textbf{栈帧对象}：\texttt{f\_lineno}（行号）、\texttt{f\_code.co\_name}（函数名）、\texttt{f\_locals}（局部变量） \\
+\texttt{event} & 事件类型：\texttt{'call'}（函数调用）、\texttt{'line'}（执行一行）、\texttt{'return'}（返回）、\texttt{'exception'}（异常） \\
+\texttt{arg} & 附加数据：\texttt{'return'} $\rightarrow$ 返回值；\texttt{'exception'} $\rightarrow$ \texttt{(exc\_type, exc\_value, traceback)} \\
+\bottomrule
+\end{tabular}}
+\end{block}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{动态追踪（2/2）：项目中的实现——\texttt{tracer.py}}
+{\footnotesize 前一页讲了 \texttt{sys.settrace()} 的原理。现在来看我们项目中\textbf{实际写的代码}：\\
+\texttt{tracer.py} 里的 \texttt{\_trace\_callback} 方法就是注册给 \texttt{sys.settrace()} 的那个回调函数。\\
+它根据不同事件分别处理：记录行号、函数调用链和返回值。}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+def _trace_callback(self, frame, event, arg):
+    if not frame.f_code.co_filename.endswith(self._target_file):
+        return self._trace_callback         # 只追踪目标文件
+
+    if event == 'line':
+        self.executed_lines.add(frame.f_lineno)             # 记录行号
+
+    elif event == 'call':
+        args = {k: repr(frame.f_locals[k])                  # 提取参数
+                for k in frame.f_code.co_varnames}
+        call = FunctionCall(function_name=frame.f_code.co_name,
+                            call_depth=len(self._call_stack), arguments=args)
+        if self._call_stack:
+            self._call_stack[-1].children.append(call)      # 子调用
+        else:
+            self.function_calls.append(call)                 # 顶层调用
+        self._call_stack.append(call)                        # 入栈
+
+    elif event == 'return':
+        call = self._call_stack.pop()                        # 出栈
+        call.return_value = repr(arg)                        # 记录返回值
+\end{verbatim}}
+
+\vspace{0.05cm}
+{\footnotesize\textbf{要点：}\texttt{\_call\_stack} 列表模拟函数调用栈 $\rightarrow$ 还原完整调用树（谁调用谁、参数、返回值）。}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{覆盖率计算与报告生成}
+{\small \texttt{reporter.py} 将静态分析的分支列表与动态追踪的行号集合\textbf{求交集}，得到覆盖情况。}
+
+\vspace{0.1cm}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\begin{block}{\small 判定逻辑（逐分支检查）}
+{\scriptsize
+\begin{enumerate}\setlength{\itemsep}{1pt}
+    \item \texttt{cfg\_builder} 解析源码 $\rightarrow$ 得到所有 \texttt{CodeBranch} 列表，每个记录 \texttt{line\_no} 和 \texttt{branch\_type}
+    \item \texttt{tracer} 运行程序 $\rightarrow$ 得到 \texttt{executed\_lines: Set[int]}（已执行行号集合）
+    \item 对每个分支：\\
+    \quad \texttt{if branch.line\_no in executed\_lines:}\\
+    \quad\quad \texttt{branch.is\_executed = True}
+    \item 统计覆盖率：
+    \[
+        \text{coverage} = \frac{\sum \mathbf{1}[\text{branch.is\_executed}]}{|\text{branches}|} \times 100\%
+    \]
+    \item 按类型分组统计：if / for / while / try / except 各多少
+\end{enumerate}}
+\end{block}
+\end{column}
+\begin{column}{0.42\textwidth}
+\begin{exampleblock}{\small 具体示例}
+{\scriptsize
+\textbf{静态分析结果（10 个分支）：}\\
+Line 2: \texttt{if} \checkmark~Line 4: \texttt{if} \checkmark~Line 9: \texttt{for} \checkmark\\
+Line 14: \texttt{if} \checkmark~Line 18: \texttt{while} \checkmark~Line 22: \texttt{try} \checkmark\\
+Line 25: \texttt{except} \textcolor{red}{\texttimes}~Line 28: \texttt{for} \checkmark\\
+Line 32: \texttt{if} \textcolor{red}{\texttimes}~Line 35: \texttt{while} \textcolor{red}{\texttimes}\\[3pt]
+\textbf{已执行 7/10，覆盖率 70\%}\\[3pt]
+未覆盖：\texttt{except}（没触发异常）、\texttt{if}（条件未命中）、\texttt{while}（循环未进入）\\[3pt]
+\textbf{启示：}需要构造能触发异常、命中特定条件、进入循环的测试用例。}
+\end{exampleblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+%========================================================================================
+%	第三部分：PathTracer 工具实现
+%========================================================================================
+
+\section{PathTracer 工具实现}
+
+\begin{frame}
+\frametitle{项目模块结构}
+\begin{columns}[T]
 \begin{column}{0.45\textwidth}
-\begin{block}{节点属性}
-\begin{itemize}
-    \item \texttt{title}: 章节标题
-    \item \texttt{node\_id}: 唯一标识
-    \item \texttt{start/end\_index}: 页码范围
-    \item \texttt{summary}: 内容摘要
-    \item \texttt{nodes}: 子节点列表
-\end{itemize}
+\begin{block}{\footnotesize 文件列表}
+{\footnotesize
+\begin{tabular}{ll}
+\toprule
+\textbf{文件} & \textbf{职责} \\
+\midrule
+\texttt{models.py} & 数据模型定义 \\
+\texttt{cfg\_builder.py} & 静态分析（CFG） \\
+\texttt{tracer.py} & 动态追踪 \\
+\texttt{reporter.py} & 覆盖率计算与报告 \\
+\texttt{cli.py} & 命令行入口 \\
+\texttt{demo.py} & 演示脚本 \\
+\bottomrule
+\end{tabular}}
+\end{block}
+\end{column}
+
+\begin{column}{0.50\textwidth}
+\begin{block}{\footnotesize 模块协作流程}
+{\footnotesize
+\centering
+\begin{enumerate}
+    \item \texttt{cfg\_builder} 解析源代码
+    \item[] $\downarrow$ 得到所有分支点
+    \item \texttt{tracer} 追踪运行过程
+    \item[] $\downarrow$ 得到已执行行号
+    \item \texttt{reporter} 对比 $\rightarrow$ 覆盖率
+    \item[] $\downarrow$
+    \item 输出报告（文本/HTML/JSON）
+\end{enumerate}}
 \end{block}
 \end{column}
 \end{columns}
@@ -135,93 +429,355 @@
 
 %------------------------------------------------
 
-\section{PathTracer：执行路径追踪}
+\begin{frame}[fragile]
+\frametitle{数据模型（1/2）：分支类型与分支点}
+{\footnotesize \texttt{models.py} 定义了整个工具使用的数据结构。涉及两个 Python 基础概念：}
+
+\vspace{0.1cm}
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+{\scriptsize
+\begin{verbatim}
+class BranchType(Enum):
+    """所有可识别的分支类型"""
+    SEQUENTIAL = "sequential"
+    IF     = "if"
+    ELSE   = "else"
+    FOR    = "for"
+    WHILE  = "while"
+    TRY    = "try"
+    EXCEPT = "except"
+
+@dataclass
+class CodeBranch:
+    """表示代码中的一个分支点"""
+    file_path: str
+    line_no: int
+    branch_type: BranchType
+    end_line: int = 0
+    is_executed: bool = False
+\end{verbatim}}
+\end{column}
+\begin{column}{0.42\textwidth}
+\begin{block}{\scriptsize \texttt{Enum} 枚举是什么？}
+{\scriptsize 枚举就是``一组有名字的常量''。\\[2pt]
+用数字记分支类型容易混淆（1=if? 2=for?），用 \texttt{BranchType.IF} 这样的名字就清晰多了。\\[2pt]
+Python 标准库 \texttt{enum.Enum} 提供这个功能。}
+\end{block}
+\vspace{0.05cm}
+\begin{block}{\scriptsize \texttt{@dataclass} 装饰器是什么？}
+{\scriptsize 普通 class 要自己写 \texttt{\_\_init\_\_} 方法来初始化属性。\texttt{@dataclass} 让 Python \textbf{自动生成}这些代码，你只需声明字段即可。\\[2pt]
+相当于自动帮你生成了：\\
+\texttt{def \_\_init\_\_(self, file\_path, line\_no, ...):}\\
+\texttt{~~self.file\_path = file\_path}\\
+\texttt{~~self.line\_no = line\_no}\\
+\texttt{~~...}}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{数据模型（2/2）：函数调用与执行路径}
+{\footnotesize 还需要记录\textbf{函数调用链}和\textbf{整体执行路径}：}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+@dataclass
+class FunctionCall:
+    """记录一次函数调用"""
+    function_name: str                       # 函数名
+    file_path: str                           # 所在文件
+    line_no: int                             # 调用位置行号
+    call_depth: int                          # 调用深度（0=顶层调用）
+    arguments: Dict[str, str] = field(...)   # 参数名 -> 参数值（字符串）
+    return_value: Optional[str] = None       # 返回值（字符串）
+    children: List[FunctionCall] = field(...) # 子调用列表（嵌套结构）
+
+@dataclass
+class ExecutionPath:
+    """记录一个文件的完整执行路径"""
+    file_path: str
+    executed_lines: Set[int] = field(...)               # 执行过的所有行号
+    executed_branches: Dict[int, CodeBranch] = field(...)  # 被执行的分支
+    function_calls: List[FunctionCall] = field(...)     # 函数调用链
+
+@dataclass
+class CoverageReport:
+    """最终的覆盖率报告"""
+    total_branches: int = 0
+    executed_branches: int = 0
+    coverage_percentage: float = 0.0
+    branches_by_type: Dict[BranchType, int] = field(...)  # 按类型统计
+    file_reports: Dict[str, ExecutionPath] = field(...)   # 按文件统计
+\end{verbatim}}
+\end{frame}
+
+%========================================================================================
+%	第四部分：使用演示
+%========================================================================================
+
+\section{使用演示}
+
+\begin{frame}[fragile]
+\frametitle{被追踪的示例代码（1/2）：条件分支}
+{\footnotesize \texttt{demo.py} 包含多种程序结构，演示 PathTracer 的追踪能力：}
+
+\vspace{0.1cm}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{block}{\scriptsize if/elif/else 选择结构}
+{\scriptsize
+\begin{verbatim}
+def demo_conditionals(value):
+    if value < 0:
+        return "negative"
+    elif value == 0:
+        return "zero"
+    elif value <= 10:
+        return "small"
+    elif value <= 50:
+        return "medium"
+    else:
+        return "large"
+\end{verbatim}}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{\scriptsize 说明}
+{\scriptsize
+\textbf{5 条可能的执行路径}，输入不同走的路不同：\\[3pt]
+$\bullet$ \texttt{demo\_conditionals(-5)}\\
+~~走第1个 if $\rightarrow$ "negative"\\[2pt]
+$\bullet$ \texttt{demo\_conditionals(25)}\\
+~~走第4个 elif $\rightarrow$ "medium"\\[2pt]
+$\bullet$ \texttt{demo\_conditionals(100)}\\
+~~走 else $\rightarrow$ "large"\\[3pt]
+单一输入\textbf{只能覆盖一条路径}。}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{被追踪的示例代码（2/2）：循环、异常与嵌套}
+{\footnotesize 除了 if/else，\texttt{demo.py} 还包含循环、异常处理和嵌套结构：}
+
+\vspace{0.1cm}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{block}{\scriptsize for 循环}
+{\scriptsize
+\begin{verbatim}
+def demo_for_loop(items):
+    total = 0
+    for item in items:
+        total += item
+    return total
+\end{verbatim}}
+\end{block}
+\vspace{0.05cm}
+\begin{block}{\scriptsize while 循环}
+{\scriptsize
+\begin{verbatim}
+def demo_while_loop(limit):
+    results = []
+    counter = 0
+    while counter < limit:
+        results.append(counter * 2)
+        counter += 1
+    return results
+\end{verbatim}}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{\scriptsize try/except 异常处理}
+{\scriptsize
+\begin{verbatim}
+def demo_exception_handling(
+        dividend, divisor):
+    try:
+        result = dividend / divisor
+    except ZeroDivisionError:
+        result = 0.0
+    else:
+        result = result * 1.0
+    finally:
+        pass
+    return result
+\end{verbatim}}
+\end{block}
+\vspace{0.05cm}
+\begin{block}{\scriptsize 嵌套结构（循环+条件）}
+{\scriptsize
+\begin{verbatim}
+def demo_nested(data, threshold):
+    results = []
+    if threshold > 0:
+        for item in data:
+            count = 0
+            while count < threshold:
+                results.append(item-count)
+                count += 1
+    else:
+        results = data.copy()
+    return results
+\end{verbatim}}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{运行命令}
+{\footnotesize 一行命令即可追踪任意 Python 程序的执行路径，\textbf{不需要修改被追踪的代码}：}
+
+\vspace{0.1cm}
+{\scriptsize
+\begin{verbatim}
+# 追踪 demo.py，输出文本报告到终端
+python -m pathtracer.cli pathtracer/demo.py
+
+# 输出 HTML 格式的覆盖率报告（源码逐行高亮）
+python -m pathtracer.cli --format html -o report.html pathtracer/demo.py
+
+# 输出 JSON 格式（方便后续程序处理）
+python -m pathtracer.cli --format json -o report.json pathtracer/demo.py
+
+# 静默模式：只输出报告，不显示程序自身的打印
+python -m pathtracer.cli --quiet pathtracer/demo.py
+\end{verbatim}}
+
+\vspace{0.1cm}
+{\footnotesize \textbf{原理：}\texttt{cli.py} 用 \texttt{compile() + exec()} 在追踪环境下运行目标程序，追踪器自动记录一切。}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{运行结果：文本报告}
+{\footnotesize 运行 \texttt{demo.py} 后生成的覆盖率报告：}
+
+\vspace{0.1cm}
+{\scriptsize
+\begin{verbatim}
+============================================================
+EXECUTION PATH COVERAGE REPORT
+============================================================
+
+Total Branches:   15
+Executed Branches: 12
+Coverage: 80.0%
+
+Branches by Type:
+  if         : 6
+  for        : 4
+  while      : 3
+  try        : 1
+  except     : 1
+
+============================================================
+EXECUTED BRANCHES:
+------------------------------------------------------------
+  demo.py:
+    Line   32: if         [executed]
+    Line   34: if         [executed]
+    Line   44: for        [executed]
+    ...
+\end{verbatim}}
+
+\vspace{0.1cm}
+{\footnotesize 80\% 覆盖率意味着有 3 个分支未被执行（如 \texttt{except} 未触发、某个 \texttt{else} 未命中等）。}
+\end{frame}
+
+%------------------------------------------------
+
 \begin{frame}
-\frametitle{PathTracer：代码执行路径追踪与覆盖率分析}
-项目中的 \texttt{pathtracer} 模块，用于追踪 Python 程序的执行路径：
-\begin{itemize}
-    \item \textbf{分支追踪}：记录 if/else/for/while/try 等分支的执行情况
-    \item \textbf{函数调用链}：记录函数调用的深度、参数和返回值
-    \item \textbf{覆盖率报告}：生成 HTML/JSON/文本格式的覆盖率报告
-\end{itemize}
+\frametitle{不同测试输入的覆盖对比}
+{\footnotesize 以 \texttt{demo\_conditionals} 函数为例，不同输入覆盖不同分支：}
+
+\vspace{0.15cm}
+\begin{table}
+\centering
+{\footnotesize
+\begin{tabular}{lccc}
+\toprule
+\textbf{测试输入} & \textbf{覆盖分支} & \textbf{未覆盖} & \textbf{覆盖率} \\
+\midrule
+\texttt{demo\_conditionals(25)} & 4/5 & \texttt{else} (value>50) & 80\% \\
+\texttt{demo\_conditionals(-5)} & 1/5 & 4条路径 & 20\% \\
+\texttt{demo\_conditionals(0)}  & 2/5 & 3条路径 & 40\% \\
+\textbf{综合多次调用} & \textbf{5/5} & \textbf{无} & \textbf{100\%} \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\vspace{0.15cm}
+{\footnotesize
+\begin{block}{结论}
+单一测试输入只能覆盖部分路径。要达到高覆盖率，需要\textbf{设计多组不同的测试输入}，覆盖所有分支。\\[3pt]
+这正体现了路径分析在软件测试中的价值：\textbf{量化测试充分性}，指导测试用例的补充。
+\end{block}}
+\end{frame}
+
+%========================================================================================
+%	第五部分：总结
+%========================================================================================
+
+\section{总结}
+
+\begin{frame}
+\frametitle{项目总结}
+\begin{block}{做了什么}
+编写了 \textbf{PathTracer} 工具，能够自动追踪 Python 程序的执行路径并生成覆盖率报告。
+\end{block}
+
 \vspace{0.3cm}
-\begin{block}{使用示例}
-\tiny
-\texttt{python -m pathtracer.cli agent\_pageindex.py --query "..." --doc-top-k 3}
+\begin{block}{核心技术}
+\begin{enumerate}
+    \item \textbf{静态分析}：用 \texttt{ast} 模块解析源代码，识别所有分支点
+    \item \textbf{动态追踪}：用 \texttt{sys.settrace()} 在运行时记录执行路径
+    \item \textbf{覆盖率计算}：对比静态分支与动态执行结果，计算覆盖率百分比
+\end{enumerate}
+\end{block}
+
+\vspace{0.3cm}
+\begin{block}{输出成果}
+\begin{itemize}
+    \item 文本报告（终端直接查看）
+    \item HTML 可视化报告（源码逐行高亮 + 函数调用树）
+    \item JSON 格式（供自动化工具使用）
+\end{itemize}
 \end{block}
 \end{frame}
 
 %------------------------------------------------
 
-\section{实验与应用}
 \begin{frame}
-\frametitle{FinanceBench 基准测试}
-基于 PageIndex 构建的 Mafin 2.5 系统在 FinanceBench 上达到 \textbf{98.7\%} 准确率：
-\vspace{0.3cm}
+\frametitle{覆盖的程序结构}
 \begin{table}
 \centering
-\begin{tabular}{lc}
+\begin{tabular}{lll}
 \toprule
-\textbf{系统} & \textbf{准确率} \\
+\textbf{结构类型} & \textbf{关键词} & \textbf{支持情况} \\
 \midrule
-Mafin 2.5 (PageIndex) & 98.7\% \\
-传统向量 RAG & $<$ 80\% \\
+顺序结构 & 逐行执行 & \checkmark~行级追踪 \\
+选择结构 & \texttt{if / elif / else} & \checkmark~分支覆盖 \\
+循环结构 & \texttt{for / while} & \checkmark~进入/跳过 \\
+异常处理 & \texttt{try / except} & \checkmark~正常/异常路径 \\
+函数调用 & \texttt{def / return} & \checkmark~调用链+参数 \\
+嵌套结构 & 组合使用 & \checkmark~递归追踪 \\
 \bottomrule
 \end{tabular}
 \end{table}
-\vspace{0.3cm}
-\begin{itemize}
-    \item 在金融报告、SEC 文件等专业文档上表现优异
-    \item 层次化索引 + 推理式检索 $=$ 精准定位关键信息
-\end{itemize}
-\end{frame}
-
-%------------------------------------------------
-
-\section{部署与应用场景}
-\begin{frame}
-\frametitle{部署方式与应用场景}
-\begin{columns}[T]
-\begin{column}{0.48\textwidth}
-\begin{block}{部署方式}
-\begin{itemize}
-    \item \textbf{本地部署}：开源代码自托管
-    \item \textbf{云服务}：Chat Platform / MCP / API
-    \item \textbf{企业版}：私有化部署
-\end{itemize}
-\end{block}
-\end{column}
-\begin{column}{0.48\textwidth}
-\begin{block}{应用场景}
-\begin{itemize}
-    \item 金融报告分析
-    \item 法律文件检索
-    \item 学术论文问答
-    \item 技术文档导航
-\end{itemize}
-\end{block}
-\end{column}
-\end{columns}
-\end{frame}
-
-%------------------------------------------------
-
-\section{总结与展望}
-\begin{frame}
-\frametitle{总结与展望}
-\textbf{PageIndex 的核心贡献：}
-\begin{enumerate}
-    \item 提出\textbf{无向量、基于推理}的 RAG 新范式
-    \item 设计层次化\textbf{树结构索引}，保留文档原有结构
-    \item 在 FinanceBench 上实现 SOTA 性能
-\end{enumerate}
-\vspace{0.5cm}
-\textbf{未来方向：}
-\begin{itemize}
-    \item 支持更多文档格式（Word、PPT 等）
-    \item 多模态文档理解（图表、公式）
-    \item 更细粒度的推理与检索策略
-\end{itemize}
 \end{frame}
 
 %------------------------------------------------
