@@ -843,6 +843,256 @@ EXECUTED BRANCHES:
 \Huge{\centerline{谢谢！}}
 \end{frame}
 
+%========================================================================================
+%	附录：对 PageIndex 项目的路径分析
+%========================================================================================
+
+\section*{附录：对 PageIndex 项目的路径分析}
+
+% ---------- 项目整体介绍 ----------
+
+\begin{frame}
+\frametitle{附录 - PageIndex 项目简介}
+{\footnotesize PageIndex 是一个\textbf{无向量、基于推理}的文档索引与检索系统。核心思想：把 PDF 文档解析成\textbf{层次化树结构}（目录树），然后让 LLM 在树上进行\textbf{推理式搜索}，模拟人类专家``先看目录、再翻页''的方式。}
+
+\vspace{0.15cm}
+{\footnotesize 项目由以下模块协作完成：}
+
+\vspace{0.1cm}
+\begin{table}
+\centering
+{\scriptsize
+\begin{tabular}{lp{8.5cm}}
+\toprule
+\textbf{文件} & \textbf{职责} \\
+\midrule
+\texttt{pageindex/page\_index.py} & PDF 结构解析：提取目录（TOC）、检测标题与页码、构建层级树（约 186 个控制流） \\
+\texttt{pageindex/search.py} & 推理式搜索：LLM 选文档 $\rightarrow$ LLM 在树中找节点 $\rightarrow$ 拼上下文 $\rightarrow$ LLM 生成回答 \\
+\texttt{pageindex/postgres\_store.py} & 数据库持久层：PostgreSQL 存储文档树、目录查询 \\
+\texttt{pageindex/page\_index\_md.py} & Markdown 文档处理：层级树构建、摘要生成 \\
+\texttt{agent\_pageindex.py} & 对话式入口：LangChain Agent，接收用户提问，调用搜索工具 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\vspace{0.1cm}
+{\footnotesize 接下来通过贴关键代码，了解各模块的核心逻辑。}
+\end{frame}
+
+% ---------- search.py 介绍 ----------
+
+\begin{frame}[fragile]
+\frametitle{附录 - 核心搜索流程（\texttt{search.py}）}
+{\scriptsize \texttt{run\_tree\_search()} 是搜索的入口函数，展示了完整的检索流程：}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+def run_tree_search(query, model, doc_top_k, max_concurrency, max_context):
+    # Step 1: 从数据库加载所有文档目录
+    catalog_entries = [CatalogEntry(...) for record in list_catalog_documents()]
+    if not catalog_entries:
+        return PageIndexSearchResult(catalog_entries=[])
+
+    # Step 2: LLM 选出最相关的 top-k 文档
+    doc_selection_result = extract_json(llm_completion(model,
+        DOC_SELECTION_PROMPT.format(query=query, documents_json=json.dumps(documents))))
+    # 解析 LLM 返回的 doc_list，处理各种格式（str/list/异常值）
+    raw_doc_list_value = doc_selection_result.get("doc_list", ...)
+    if isinstance(raw_doc_list_value, str):
+        raw_doc_list = [raw_doc_list_value]
+    elif isinstance(raw_doc_list_value, list):
+        raw_doc_list = [str(doc_id) for doc_id in raw_doc_list_value]
+    else:
+        raw_doc_list = []
+
+    # Step 3: 去重 + 截断到 doc_top_k
+    for document_id in raw_doc_list:
+        entry = entry_map.get(str(document_id))
+        if not entry or document_id in seen: continue
+        selected_entries.append(entry); seen.add(document_id)
+        if len(selected_entries) >= doc_top_k: break
+\end{verbatim}}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{附录 - 核心搜索流程续（\texttt{search.py}）}
+{\scriptsize 继续看搜索的后半部分：树搜索 $\rightarrow$ 拼上下文 $\rightarrow$ 生成最终回答。}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+    # Step 4: 对每个选中的文档，LLM 在树结构上推理式搜索
+    if selected_entries:
+        loaded_documents = get_documents_by_ids([e.document_id for e in selected_entries])
+        search_results = asyncio.run(_search_selected_documents(
+            query=query, selected_documents=loaded_documents,
+            model=model, max_concurrency=max_concurrency))
+        # ↑ 内部用 asyncio.Semaphore 控制并发，每个文档独立搜索
+
+        # Step 5: 收集所有命中的节点，拼接上下文
+        for result in search_results:
+            relevant_nodes.extend(result.relevant_nodes)
+        if relevant_nodes:
+            context, context_truncated = _build_context(relevant_nodes, max_context)
+            # ↑ 按长度截断，超限部分用 "..." 标记
+
+            # Step 6: 用上下文让 LLM 生成最终回答
+            if context.strip():
+                answer = llm_completion(model,
+                    ANSWER_PROMPT.format(query=query, context=context))
+
+    return PageIndexSearchResult(catalog_entries=catalog_entries,
+        selected_entries=selected_entries, relevant_nodes=relevant_nodes,
+        context=context, answer=answer, ...)
+\end{verbatim}}
+\end{frame}
+
+% ---------- agent_pageindex.py 介绍 ----------
+
+\begin{frame}[fragile]
+\frametitle{附录 - 对话式入口（\texttt{agent\_pageindex.py}）}
+{\scriptsize 用户通过命令行提问，Agent 调用 \texttt{search\_pageindex} 工具完成检索：}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+def main():
+    args = parser.parse_args()   # --query, --doc-top-k, --verbose 等
+    load_dotenv()                # 加载 .env 中的 DEEPSEEK_API_KEY
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise ValueError("DEEPSEEK_API_KEY is not set.")
+
+    # 创建 LangChain Agent，绑定 search_pageindex 工具
+    agent = create_agent(
+        model=init_chat_model(model="deepseek-chat", base_url=DEEPSEEK_BASE_URL,
+                              api_key=api_key, temperature=0),
+        tools=[search_pageindex],
+        system_prompt="Always call search_pageindex before answering...")
+
+    agent_input = {"messages": [{"role": "user", "content": f"Use search_pageindex..."
+                                  f"Question: {args.query}"}]}
+
+    if args.verbose:
+        _print_verbose_stream(agent, agent_input)  # 流式打印工具调用过程
+    else:
+        result = agent.invoke(agent_input)          # 静默执行
+        print(_extract_text(result["messages"][-1].content))
+\end{verbatim}}
+
+\vspace{0.05cm}
+{\scriptsize 运行示例：\texttt{python agent\_pageindex.py -{}-query "端到端符号回归是哪篇论文？" -{}-doc-top-k 3}}
+\end{frame}
+
+% ---------- 真实项目运行 PathTracer ----------
+
+\begin{frame}[fragile]
+\frametitle{附录 - 对真实项目运行 PathTracer（1/3）：静态分析}
+{\scriptsize 运行命令后，PathTracer 首先对 \texttt{agent\_pageindex.py} 进行静态分析，找出所有分支点：}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+# 用户执行的命令：
+python -m pathtracer.cli agent_pageindex.py \
+    --query "端到端符号回归是指哪一篇参考文献，作者是谁" \
+    --doc-top-k 3 --max-concurrency 3
+
+# ===== Step 1: 静态分析 (cfg_builder) =====
+cfg = CFGBuilder()
+all_branches = cfg.build_from_file("agent_pageindex.py")
+
+# ast.parse 解析源码，ast.walk 遍历所有节点，识别控制流：
+#   Line 26: IF     ← if payload is None:
+#   Line 28: IF     ← if isinstance(payload, str):
+#   Line 29: IF     ← if isinstance(payload, list):
+#   Line 34: IF     ← if isinstance(item, dict) and item.get("type") == "text":
+#   Line 44: IF     ← if not isinstance(chunk, dict):
+#   Line 53: IF     ← if message_id in seen_messages:
+#   Line 56: IF     ← if tool_calls:
+#   Line 64: IF     ← if not content:
+#   Line 67: IF     ← if message_type == "ToolMessage":
+#   Line 73: IF     ← if message_type == "AIMessage":
+#   Line 88: IF     ← if not api_key:
+#   Line 116: IF    ← if args.verbose:
+#   Line 121: IF    ← if isinstance(result, dict):
+#   Line 123: IF    ← if messages:
+# 共 14+ 个分支点，分布在参数解析、类型判断、流式输出等逻辑中
+\end{verbatim}}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{附录 - 对真实项目运行 PathTracer（2/3）：动态追踪}
+{\scriptsize 然后在实际运行 \texttt{agent\_pageindex.py} 时，tracer 记录每行的执行情况：}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+# ===== Step 2: 动态追踪 (tracer) =====
+tracer = PathTracer().trace_file("agent_pageindex.py")
+with tracer:                                    # sys.settrace() 开始追踪
+    # exec() 把 __name__ 设为 '__main__'，触发目标文件的 main() 函数：
+    # agent_pageindex.py 末尾有：if __name__ == "__main__": main()
+    # 所以 exec(code, {'__name__':'__main__'}) 会自动调用 main()
+    #
+    # Line 84:  args = parser.parse_args()           # 解析 --query 等参数  ✓
+    # Line 86:  load_dotenv(...)                      # 加载 .env           ✓
+    # Line 87:  api_key = os.getenv("DEEPSEEK_API_KEY")
+    # Line 88:  if not api_key:                       # IF 分支
+    # Line 89:      raise ValueError(...)             #   → 未进入（api_key 存在）
+    # Line 91:  agent = create_agent(...)             # 创建 LangChain Agent ✓
+    # Line 103: agent_input = {...}                   # 构造输入消息          ✓
+    # Line 116: if args.verbose:                      # IF 分支
+    #                                              #   → 未进入（没加 --verbose）
+    # Line 120: result = agent.invoke(agent_input)   # 静默执行 Agent        ✓
+    #           # Agent 内部调用 search_pageindex → run_tree_search
+    #           # → search.py → page_index.py → postgres_store.py
+    #           # 但 tracer 只记录 agent_pageindex.py 本身的行号
+    # Line 121: if isinstance(result, dict):          # IF 分支
+    # Line 122:     messages = result.get(...)        #   → 进入（result 是 dict）
+    # Line 123:     if messages:                      # IF 分支
+    # Line 124:         print(_extract_text(...))     #   → 进入（有 messages）✓
+# sys.settrace(None)                              # 停止追踪
+\end{verbatim}}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{附录 - 对真实项目运行 PathTracer（3/3）：覆盖率计算}
+{\scriptsize 最后对比静态分析的分支与动态追踪的已执行行号：}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+# ===== Step 3: 覆盖率计算 (reporter) =====
+report = reporter.analyze("agent_pageindex.py", tracer)
+
+# 对每个分支逐个检查：
+#   Line 26  (IF):  26 in executed_lines? → True  ✓  (_extract_text 处理 None)
+#   Line 28  (IF):  28 in executed_lines? → True  ✓  (payload 是 dict，先检查 str)
+#   Line 29  (IF):  29 in executed_lines? → False ✗  (payload 不是 list)
+#   Line 88  (IF):  88 in executed_lines? → False ✗  (api_key 存在，没抛异常)
+#   Line 116 (IF):  116 in executed_lines? → False ✗  (没加 --verbose)
+#   Line 121 (IF):  121 in executed_lines? → True  ✓  (result 是 dict)
+#   Line 123 (IF):  123 in executed_lines? → True  ✓  (有 messages)
+#   ...
+# 结果：约 10/14 被覆盖，覆盖率 ≈ 71%
+
+# 输出 HTML 报告查看详情：
+python -m pathtracer.cli --format html -o coverage.html agent_pageindex.py \
+    --query "端到端符号回归是指哪一篇参考文献，作者是谁" --doc-top-k 3
+\end{verbatim}}
+
+\vspace{0.05cm}
+{\scriptsize \textbf{发现：}没加 \texttt{-{}-verbose} 时，流式输出相关的分支（Line 40-74）全部未覆盖。加一次 \texttt{-{}-verbose} 运行就能覆盖那些分支——这就是路径分析指导测试用例补充的价值。}
+\end{frame}
+
 %----------------------------------------------------------------------------------------
 
 \end{document}
