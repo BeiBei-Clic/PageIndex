@@ -1,0 +1,47 @@
+\chapter{结论}
+\label{cha:conclusion}
+
+\section*{工作总结}
+
+本文设计并实现了一个Python程序执行路径追踪和代码覆盖率分析工具——PathTracer。该工具具有以下特点：
+
+\textbf{1. 技术实现}
+
+\begin{itemize}
+    \item 使用Python标准库\texttt{sys.settrace}实现运行时追踪，记录程序执行的每一行代码
+    \item 使用\texttt{ast}模块进行静态分析，识别源代码中的所有控制流分支点
+    \item 通过对比静态分支与动态执行路径，计算代码覆盖率
+\end{itemize}
+
+\textbf{2. 功能特性}
+
+\begin{itemize}
+    \item 支持识别顺序、选择（if/elif/else）、循环（for/while）、异常处理（try/except）等程序结构
+    \item 记录函数调用树，包含参数和返回值信息
+    \item 支持文本、JSON、HTML三种报告输出格式
+    \item 提供命令行接口和Python API两种使用方式
+\end{itemize}
+
+\textbf{3. 实验验证}
+
+通过完整的实验验证，工具成功：
+
+\begin{itemize}
+    \item 设计并执行了3个测试用例（TC1/TC2/TC3），测试套件累计覆盖率达72.7\%
+    \item 对demo.py进行了完整测试，覆盖了if/for/while/except等多种控制流结构
+    \item 与coverage.py进行了对比分析（使用--branch模式），明确了两者统计口径差异
+    \item 生成了HTML可视化报告（见\texttt{docs/coverage\_demo\_full.html}）
+\end{itemize}
+
+\textbf{4. 工具定位}
+
+本实验验证了PathTracer在Python分支覆盖与执行路径跟踪上的可行性，适用于以下场景：
+
+\begin{itemize}
+    \item \textbf{教学演示}：帮助理解程序控制流和执行路径
+    \item \textbf{调试分析}：定位未覆盖的代码分支，辅助测试设计
+    \item \textbf{代码审查}：记录函数调用关系和参数传递
+\end{itemize}
+
+\textbf{局限性}：本实验主要针对小型示例程序进行验证，尚未针对大型真实项目（如Django、Flask等框架）做系统评测。工具在大规模代码库上的性能和准确性有待进一步验证。
+

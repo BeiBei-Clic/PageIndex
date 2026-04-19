@@ -1,0 +1,112 @@
+%%
+% 第四章：使用文档
+%%
+
+\chapter{使用文档}
+\label{chap:usage}
+
+\section{命令行接口}
+
+PathTracer提供了简洁的命令行接口, 用户可以通过命令行参数控制追踪行为和报告输出格式。基本的使用方法是执行\texttt{python -m pathtracer.cli [选项] <程序文件> [-- <程序参数>}]命令。 其中方括号内的选项是传递给PathTracer自身, 方括号后的选项传递给目标程序。 例如, 要生成HTML格式的覆盖率报告, 可以 执行命令\texttt{python -m pathtracer.cli -f html -o report.html target.py -- arg1 arg2}。 如果要在静默模式下运行（仅输出报告, 不显示程序输出), 则添加\texttt{-q}参数。 要 以\texttt{python -m pathtracer.cli -f html -o report.html -q target.py -- arg1 arg2}.
+
+PathTracer支持三种报告输出格式。文本格式是输出到标准输出, 是 人类直接阅读, 包含总体覆盖率、 按类型统计和已执行分支列表。JSON格式输出结构化数据, 便于程序处理, 可于持续集成到自动化流水线中。 HTML格式生成带有语法高亮的可视化页面, 已执行和未执行的代码行用不同的颜色标识。
+
+ 适合在浏览器中查看。
+
+\section{Python API使用}
+
+对于需要更精细控制的场景, PathTracer提供了Python API接口。以下是展示完整的使用流程, 从创建追踪器、执行目标代码, 到生成并保存报告:
+
+\begin{lstlisting}[language=Python]
+from pathtracer import PathTracer, CoverageReporter
+
+# 1. 创建追踪器并指定目标文件
+tracer = PathTracer().trace_file("target.py")
+
+# 2. 在with块中执行目标代码
+with tracer:
+    result = target_function(arg1, arg2)
+    # 3. 退出with块后自动停止追踪
+
+# 4. 生成覆盖率报告
+reporter = CoverageReporter()
+report = reporter.analyze("target.py", tracer)
+
+# 5. 输出文本报告
+print(reporter.format_report(report))
+
+# 6. 保存HTML报告
+with open("report.html", "w", encoding="utf-8") as f:
+    f.write(reporter.format_report_html(report))
+\end{lstlisting}
+
+API的一个重要特性是函数调用树追踪。通过\texttt{tracer.get\_function\_calls()}方法可以获取完整的函数调用记录, 每个记录包含函数名、参数、 返回值、调用深度和 和子调用列表。这使我们可以构建程序的动态调用图, 理解函数之间的调用关系和参数传递。 以下代码展示了如何递归打印函数调用树
+\begin{lstlisting}[language=Python]
+def print_call_tree(call, depth=0):
+    indent = "  " * depth
+    args = ", ".join(f"{k}={v}" for k, v in call.arguments.items())
+    ret = f" -> {call.return_value}" if call.return_value else ""
+    print(f"{indent}{call.function_name}({args}){ret}")
+    for child in call.children:
+        print_call_tree(child, depth + 1)
+
+# 打印顶层调用
+for call in tracer.get_function_calls():
+    print_call_tree(call)
+\end{lstlisting}
+
+\section{支持的程序结构}
+
+PathTracer能够分析Python程序中常见的控制流结构。顺序结构是最基本的程序结构, 代码按照从上到下依次执行, 不涉及分支或跳转。选择结构通过if/elif/else语句实现条件分支, 根据条件表达式的值选择不同的执行路径。 循环结构包括for循环（遍历可序列）和while循环（条件循环）, 允许代码重复执行。 异常处理结构使用try/except/else/finally来捕获和处理程序运行时可能出现的异常。嵌套结构是循环内包含条件语句, 或条件语句内包含循环的复杂组合。
+
+  这些结构在实际程序中经常混合使用, 例如一个for循环内部可能包含if条件判断来决定是否处理某个元素, 而这个if条件判断内部又可能包含while循环来执行某个操作直到满足条件为止。
+
+\section{报告格式说明}
+
+文本格式报告以覆盖率信息以纯文本形式输出, 适合在终端中查看或 或导入其他文档。 格式如下
+\begin{lstlisting}
+============================================================
+EXECUTION PATH COVERAGE REPORT
+============================================================
+
+Total Branches: 22
+Executed Branches: 16
+Coverage: 72.7%
+
+Branches by Type:
+  if         : 17
+  for        : 5
+
+EXECUTED BRANCHES:
+------------------------------------------------------------
+target.py:
+  Line   32: if         [executed]
+  Line   54: for        [executed]
+  ...
+\end{lstlisting}
+
+JSON格式报告将数据序列化为JSON对象, 包含覆盖率百分比、 总分支数、 已执行分支数、 按类型统计、 各文件的详细执行信息。这种格式便于程序处理, 可以用于持续集成系统或自动化测试流程中 以下是一个JSON报告的示例结构
+\begin{lstlisting}
+{
+  "coverage_percentage": 72.72727272727273,
+  "total_branches": 22,
+  "executed_branches": 16,
+  "branches_by_type": {"if": 17, "for": 5},
+  "file_reports": {
+    "target.py": {
+      "executed_lines": [1, 2, 3, 4, 5, ...],
+      "executed_branches": [...]
+    }
+  }
+}
+\end{lstlisting}
+
+HTML格式报告生成自包含的HTML文档, 使用CSS进行样式设计。 报告页面采用响应式布局, 顶部显示覆盖率统计卡片, 中间显示按类型分类的统计信息, 下方展示源代码, 已执行的行显示为绿色背景, 未执行的行显示为红色背景。 这种可视化方式使得用户可以直观地看到哪些代码被执行了 哪些没有被执行. 如果程序执行过程中有函数调用, 页面底部还会展示函数调用树。
+
+\section{扩展性设计}
+
+PathTracer的模块化架构使其它易于扩展。 添加新的分支类型支持只需要在\texttt{models.py}中定义新的枚举值 并在\texttt{cfg\_builder.py}中添加相应的识别逻辑。 添加新的报告格式只需在\texttt{reporter.py}中添加新的格式化方法。 添加新的追踪功能可以通过继承\texttt{PathTracer}类并重写回调方法实现. 代码结构清晰, 各模块职责明确, 便于理解和维护.
+
+\section{本章小结}
+
+本章介绍了PathTracer的使用方法, 包括命令行接口和Python API两种方式。 工具支持三种报告输出格式, 能够分析Python程序中常见的控制流结构。 通过简洁的API设计, 用户可以轻松地将PathTracer集成到自己的开发和测试流程中。

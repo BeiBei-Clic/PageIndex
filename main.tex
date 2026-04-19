@@ -1,0 +1,43 @@
+\documentclass{scutthesis}
+
+% 开始使用该模板请修改以下文件
+\input{docs/info}     % 在这里填写论文相关信息
+
+\begin{document}
+% 论文前置部分
+\frontmatter
+\pagenumbering{Roman}
+\makeUndergraduateCover    % 生成封面
+
+\maketableofcontents        % 生成目录
+
+% 论文主体部分
+\mainmatter
+
+\include{docs/chap01} % 第一章：实验目的和背景
+\newclearpage
+\include{docs/chap02} % 第二章：系统设计与实现
+\newclearpage
+\include{docs/chap03} % 第三章：实验过程与结果
+\newclearpage
+\include{docs/chap04} % 第四章：使用文档
+\newclearpage
+
+% 论文后置部分
+\backmatter
+\renewcommand{\chaptermark}[1]{\markboth{\songti #1}{}}
+\include{docs/conclusion} % 结论
+\newclearpage
+
+% 致谢
+\include{docs/ack} % 致谢
+\newclearpage
+
+% 附录部分
+{
+    \appendix
+    \renewcommand{\chaptermark}[1]{\markboth{\songti  附录\thechapter\ ~#1}{}}
+    \include{docs/appendix1} % 导入附录
+    \newclearpage
+}
+\end{document}

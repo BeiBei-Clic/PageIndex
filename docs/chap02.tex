@@ -1,0 +1,75 @@
+%%
+% 第二章：系统设计与实现
+%%
+
+\chapter{系统设计与实现}
+\label{chap:design}
+
+\section{整体架构设计}
+
+PathTracer系统采用模块化的分层架构设计, 整个系统可以划分为四个层次。最底层是数据模型层, 定义了系统中使用的各种数据结构, 包括分支类型枚举、代码分支记录、函数调用记录、执行路径记录和覆盖率报告等。第二层是核心功能层, 包含运行时追踪器和控制流图构建器两个核心组件, 前者负责在程序执行过程中记录实际执行的代码路径, 后者负责通过静态分析识别源代码中的所有分支点。第三层是分析层, 即报告生成器, 它接收来自核心功能层的数据, 通过对比静态分支与动态执行路径来计算覆盖率, 并生成各种格式的报告。最顶层是接口层, 提供命令行接口和Python API两种使用方式, 使用户能够方便地调用底层功能。
+
+系统的工作流程是一个典型的静态-动态对比分析流程。首先, 用户指定要分析的Python源文件, 系统的静态分析器读取该文件并使用AST模块解析源代码, 识别出所有的控制流分支点（如if语句、for循环、while循环、except处理器等）, 这些分支点构成了"总分支数"。然后, 用户执行目标程序, 运行时追踪器通过\texttt{sys.settrace}机制监控程序的执行, 记录每一行被执行的代码。当程序执行完毕后, 报告生成器将静态识别的分支点与动态记录的执行行进行对比, 如果某个分支点的起始行在执行记录中, 则标记该分支为"已执行"。最后, 计算覆盖率（已执行分支数/总分支数）并生成报告。这种设计的优点是能够清晰地展示哪些代码路径被执行了, 哪些没有被执行, 以及为什么没有被执行。
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\textwidth]{figures/pathtracer-architecture.png}
+    \caption{PathTracer系统架构图：展示了从源代码输入到报告输出的完整数据流程}
+    \label{fig:architecture}
+\end{figure}
+
+\section{数据模型设计}
+
+数据模型是整个系统的基础, 我们使用Python的dataclass来定义各种数据结构。\texttt{BranchType}枚举定义了系统支持的控制流分支类型, 包括SEQUENTIAL（顺序执行）、IF（if条件语句）、ELSE（else分支）、ELIF（elif分支）、FOR（for循环）、WHILE（while循环）、TRY（try块）、EXCEPT（except处理器）。这个枚举覆盖了Python程序中最常见的控制流结构。需要注意的是, 当前的实现主要关注分支的入口点, 例如进入if块、进入for循环等, 而不区分分支的两个方向（如if的true/false两个分支）。
+
+\texttt{CodeBranch}类表示源代码中的一个分支点, 它包含以下属性: \texttt{file\_path}记录分支所在的源文件路径; \texttt{line\_no}记录分支的起始行号; \texttt{branch\_type}记录分支类型; \texttt{end\_line}记录分支的结束行号, 这个信息有助于在报告中展示分支的完整范围; \texttt{is\_executed}是一个布尔标记, 初始为False, 在运行时追踪后根据执行记录更新为True。这个类的设计使得我们能够精确定位每个分支在源代码中的位置。
+
+\texttt{FunctionCall}类用于记录函数调用信息, 它是PathTracer相对于其他覆盖率工具的独特功能。该类包含: \texttt{function\_name}（函数名）、\texttt{file\_path}（所在文件）、\texttt{line\_no}（调用行号）、\texttt{call\_depth}（调用深度, 0表示顶层调用）、\texttt{arguments}（参数字典, 记录参数名到值的映射）、\texttt{return\_value}（返回值的字符串表示）、\texttt{children}（子调用列表）。通过这个递归的数据结构, 我们能够构建完整的函数调用树, 展示程序的动态行为。
+
+\section{运行时追踪器实现}
+
+运行时追踪器是系统的核心组件, 它利用Python标准库提供的\texttt{sys.settrace}机制来实现运行时代码追踪。Python解释器在执行程序时会触发各种事件, 包括函数调用、行执行、函数返回和异常发生。\texttt{sys.settrace}允许我们注册一个回调函数, 当这些事件发生时, 回调函数会被调用, 我们可以在回调函数中记录这些事件。
+
+追踪器的实现使用上下文管理器协议来简化使用。当进入\texttt{with}语句块时, \texttt{\_\_enter\_\_}方法保存当前的追踪函数并注册我们的追踪回调; 当退出\texttt{with}语句块时, \texttt{\_\_exit\_\_}方法恢复原来的追踪函数。这种设计确保了追踪的开启和关闭是配对的, 不会影响其他代码的执行。使用示例非常简洁:
+
+\begin{lstlisting}[language=Python]
+tracer = PathTracer().trace_file("target.py")
+with tracer:
+    # 在此执行目标代码
+    result = target_function()
+# 退出with块后自动停止追踪
+\end{lstlisting}
+
+追踪回调函数\texttt{\_trace\_callback}是整个追踪逻辑的核心, 它接收三个参数: \texttt{frame}（当前栈帧对象）、\texttt{event}（事件类型字符串）、\texttt{arg}（事件相关参数）。当事件为'line'时, 回调函数从\texttt{frame.f\_lineno}获取当前执行的行号, 并将其添加到执行记录中。当事件为'call'时, 回调函数从\texttt{frame.f\_code}获取函数信息, 从\texttt{frame.f\_locals}提取函数参数, 构建一个\texttt{FunctionCall}对象并添加到调用树中。当事件为'return'时, 回调函数从调用栈中弹出对应的\texttt{FunctionCall}对象, 并记录返回值。需要注意的是, 追踪回调只处理目标文件中的事件, 其他文件的执行会被忽略, 这样可以避免记录不相关的系统库调用。
+
+参数提取是一个技术细节较多的功能。当函数被调用时, 我们需要从栈帧中提取函数参数的值。实现方法是: 首先从\texttt{code.co\_argcount}获取参数数量, 从\texttt{code.co\_varnames}获取参数名列表, 然后从\texttt{frame.f\_locals}中获取每个参数的值。由于参数值可能是任意Python对象, 我们使用\texttt{repr()}将其转换为字符串进行记录。对于无法调用\texttt{repr()}的对象, 我们记录为'<unable to repr>'。
+
+\section{控制流图构建器}
+
+控制流图构建器负责静态分析源代码, 识别所有的控制流分支点。它使用Python的\texttt{ast}模块将源代码解析为抽象语法树, 然后遍历AST寻找控制流节点。
+
+构建器的核心方法是\texttt{build\_from\_file}, 它接收一个Python源文件路径, 读取文件内容, 使用\texttt{ast.parse}将其解析为AST, 然后遍历AST中的所有节点。对于每个节点, 调用\texttt{\_extract\_branch}方法判断它是否是控制流节点。如果是, 创建一个\texttt{CodeBranch}对象并添加到分支列表中。
+
+\texttt{\_extract\_branch}方法使用\texttt{isinstance}检查节点类型。当节点是\texttt{ast.If}类型时, 说明这是一个if条件语句, 创建一个类型为IF的\texttt{CodeBranch}。类似地, 处理\texttt{ast.For}（for循环）、\texttt{ast.While}（while循环）、\texttt{ast.ExceptHandler}（异常处理器）。每个分支点都需要记录其起始行号和结束行号。结束行号的获取优先使用Python 3.8+提供的\texttt{end\_lineno}属性, 对于较旧版本, 则递归计算代码块中最大的行号。
+
+需要特别说明的是, 当前的实现将每个\texttt{ast.If}节点识别为一个分支点, 但不单独识别elif和else。这是因为从AST的角度看, elif和else都是\texttt{ast.If}节点的一部分（它们在\texttt{orelse}属性中）。如果要实现更精细的分支识别（如区分if和else两个方向）, 需要更复杂的AST分析逻辑。当前的设计选择是识别控制流结构的入口点, 这足以支持基本的覆盖率分析。
+
+\section{报告生成器}
+
+报告生成器是系统的最后一个核心组件, 它负责整合静态分析和动态追踪的结果, 计算覆盖率并生成报告。报告生成器的核心方法是\texttt{analyze}, 它接收源文件路径和已执行追踪的\texttt{PathTracer}实例。首先调用控制流图构建器获取所有静态分支, 然后从追踪器获取已执行的行号集合。接下来遍历所有分支, 如果分支的起始行号在已执行行号集合中, 则将该分支标记为已执行。最后统计总数、已执行数、按类型分类的分支数, 计算覆盖率百分比, 构建并返回\texttt{CoverageReport}对象。
+
+报告生成器支持三种输出格式。文本格式通过\texttt{format\_report}方法生成, 输出人类可读的纯文本报告, 包含总体覆盖率统计、按类型分类的分支数、已执行分支的详细列表。JSON格式通过\texttt{format\_report\_json}方法生成, 输出结构化的JSON数据, 便于程序处理和自动化分析。HTML格式通过\texttt{format\_report\_html}方法生成, 输出带有语法高亮的可视化HTML页面, 页面中已执行的代码行显示为绿色背景, 未执行的代码行显示为红色背景, 这使得用户能够直观地看到哪些代码被执行了, 哪些没有。
+
+HTML报告的设计采用了现代化的响应式布局, 使用CSS Grid实现统计卡片的布局。源代码显示使用等宽字体和深色背景, 模拟IDE的代码显示效果。每行代码左侧显示行号, 通过不同的背景色和左边框颜色区分已执行（绿色）和未执行（红色）的代码行。这种视觉设计使得覆盖率报告的阅读体验更加友好。
+
+\section{PageIndex项目代码结构}
+
+作为本次实验的测试对象, PageIndex项目的代码结构体现了典型的Python应用设计模式。核心搜索功能实现在\texttt{search.py}文件中（约400行代码）, 该文件定义了完整的多阶段搜索流程。
+
+PageIndex的搜索流程分为三个阶段。第一阶段是文档选择, 系统首先从PostgreSQL数据库中获取所有已索引文档的目录信息, 然后将这些目录信息连同用户查询一起发送给大语言模型, 让模型选择最相关的文档。这一阶段的代码使用了条件判断来处理各种可能的返回值格式, 例如模型可能返回字符串形式的文档ID, 也可能返回列表形式。第二阶段是并发树搜索, 对于每个被选中的文档, 系统从数据库加载其结构树（一个嵌套的JSON对象, 包含文档的章节和段落信息）, 然后并发地在每个文档的树结构中搜索与查询相关的节点。这一阶段使用了\texttt{asyncio.Semaphore}来控制并发数, 使用\texttt{asyncio.gather}来实现并发执行。第三阶段是上下文构建和答案生成, 系统将搜索到的相关节点按顺序拼接成上下文字符串, 如果上下文超过最大长度则截断, 最后将上下文和查询一起发送给大语言模型生成最终答案。
+
+从控制流角度分析, PageIndex代码包含了丰富的程序结构。在\texttt{search.py}中, \texttt{\_get\_relevant\_content}函数使用while循环和栈来实现树的深度优先遍历, 这是一个经典的迭代式树遍历实现。\texttt{\_search\_selected\_documents}函数使用async和await实现异步并发搜索, 内部通过信号量控制并发度。\texttt{run\_tree\_search}函数是主入口, 包含多个条件判断来验证参数、处理空结果、协调各阶段执行。\texttt{\_build\_context}函数使用for循环遍历相关节点并构建上下文, 包含截断处理的条件逻辑。这些丰富的控制流结构使PageIndex成为测试覆盖率工具的理想对象。
+
+\section{本章小结}
+
+本章详细介绍了PathTracer系统的设计与实现。系统采用模块化的分层架构, 通过\texttt{sys.settrace}实现运行时追踪, 通过\texttt{ast}模块实现静态分析, 通过对比两者来计算分支覆盖率。系统还提供了独特的函数调用树追踪功能, 能够记录函数调用的参数和返回值。整个系统仅依赖Python标准库, 无需安装第三方依赖, 具有良好的可移植性。同时, 本章介绍了测试对象PageIndex项目的代码结构, 其丰富的控制流特征为覆盖率分析提供了充分的测试场景。
