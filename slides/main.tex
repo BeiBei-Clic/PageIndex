@@ -837,22 +837,16 @@ EXECUTED BRANCHES:
 \end{table}
 \end{frame}
 
-%------------------------------------------------
-
-\begin{frame}
-\Huge{\centerline{谢谢！}}
-\end{frame}
-
 %========================================================================================
-%	附录：对 PageIndex 项目的路径分析
+%	第六部分：PageIndex 项目与路径分析实战
 %========================================================================================
 
-\section*{附录：对 PageIndex 项目的路径分析}
+\section{PageIndex 项目与路径分析实战}
 
 % ---------- 项目整体介绍 ----------
 
 \begin{frame}
-\frametitle{附录 - PageIndex 项目简介}
+\frametitle{PageIndex 项目简介}
 {\footnotesize PageIndex 是一个\textbf{无向量、基于推理}的文档索引与检索系统。核心思想：把 PDF 文档解析成\textbf{层次化树结构}（目录树），然后让 LLM 在树上进行\textbf{推理式搜索}，模拟人类专家``先看目录、再翻页''的方式。}
 
 \vspace{0.15cm}
@@ -882,7 +876,7 @@ EXECUTED BRANCHES:
 % ---------- search.py 介绍 ----------
 
 \begin{frame}[fragile]
-\frametitle{附录 - 核心搜索流程（\texttt{search.py}）}
+\frametitle{核心搜索流程（\texttt{search.py}）}
 {\scriptsize \texttt{run\_tree\_search()} 是搜索的入口函数，展示了完整的检索流程：}
 
 \vspace{0.05cm}
@@ -918,7 +912,7 @@ def run_tree_search(query, model, doc_top_k, max_concurrency, max_context):
 %------------------------------------------------
 
 \begin{frame}[fragile]
-\frametitle{附录 - 核心搜索流程续（\texttt{search.py}）}
+\frametitle{核心搜索流程续（\texttt{search.py}）}
 {\scriptsize 继续看搜索的后半部分：树搜索 $\rightarrow$ 拼上下文 $\rightarrow$ 生成最终回答。}
 
 \vspace{0.05cm}
@@ -953,7 +947,7 @@ def run_tree_search(query, model, doc_top_k, max_concurrency, max_context):
 % ---------- agent_pageindex.py 介绍 ----------
 
 \begin{frame}[fragile]
-\frametitle{附录 - 对话式入口（\texttt{agent\_pageindex.py}）}
+\frametitle{对话式入口（\texttt{agent\_pageindex.py}）}
 {\scriptsize 用户通过命令行提问，Agent 调用 \texttt{search\_pageindex} 工具完成检索：}
 
 \vspace{0.05cm}
@@ -990,7 +984,7 @@ def main():
 % ---------- 真实项目运行 PathTracer ----------
 
 \begin{frame}[fragile]
-\frametitle{附录 - 对真实项目运行 PathTracer（1/3）：静态分析}
+\frametitle{对 PageIndex 运行 PathTracer（1/3）：静态分析}
 {\scriptsize 运行命令后，PathTracer 首先对 \texttt{agent\_pageindex.py} 进行静态分析，找出所有分支点：}
 
 \vspace{0.05cm}
@@ -1027,7 +1021,7 @@ all_branches = cfg.build_from_file("agent_pageindex.py")
 %------------------------------------------------
 
 \begin{frame}[fragile]
-\frametitle{附录 - 对真实项目运行 PathTracer（2/3）：动态追踪}
+\frametitle{对 PageIndex 运行 PathTracer（2/3）：动态追踪}
 {\scriptsize 然后在实际运行 \texttt{agent\_pageindex.py} 时，tracer 记录每行的执行情况：}
 
 \vspace{0.05cm}
@@ -1064,7 +1058,7 @@ with tracer:                                    # sys.settrace() 开始追踪
 %------------------------------------------------
 
 \begin{frame}[fragile]
-\frametitle{附录 - 对真实项目运行 PathTracer（3/3）：覆盖率计算}
+\frametitle{对 PageIndex 运行 PathTracer（3/3）：覆盖率计算}
 {\scriptsize 最后对比静态分析的分支与动态追踪的已执行行号：}
 
 \vspace{0.05cm}
@@ -1091,6 +1085,64 @@ python -m pathtracer.cli --format html -o coverage.html agent_pageindex.py \
 
 \vspace{0.05cm}
 {\scriptsize \textbf{发现：}没加 \texttt{-{}-verbose} 时，流式输出相关的分支（Line 40-74）全部未覆盖。加一次 \texttt{-{}-verbose} 运行就能覆盖那些分支——这就是路径分析指导测试用例补充的价值。}
+\end{frame}
+
+%========================================================================================
+%	总结
+%========================================================================================
+
+\section{总结}
+
+\begin{frame}
+\frametitle{项目总结}
+\begin{block}{做了什么}
+编写了 \textbf{PathTracer} 工具，能够自动追踪 Python 程序的执行路径并生成覆盖率报告。
+\end{block}
+
+\vspace{0.3cm}
+\begin{block}{核心技术}
+\begin{enumerate}
+    \item \textbf{静态分析}：用 \texttt{ast} 模块解析源代码，识别所有分支点
+    \item \textbf{动态追踪}：用 \texttt{sys.settrace()} 在运行时记录执行路径
+    \item \textbf{覆盖率计算}：对比静态分支与动态执行结果，计算覆盖率百分比
+\end{enumerate}
+\end{block}
+
+\vspace{0.3cm}
+\begin{block}{输出成果}
+\begin{itemize}
+    \item 文本报告（终端直接查看）
+    \item HTML 可视化报告（源码逐行高亮 + 函数调用树）
+    \item JSON 格式（供自动化工具使用）
+\end{itemize}
+\end{block}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{覆盖的程序结构}
+\begin{table}
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{结构类型} & \textbf{关键词} & \textbf{支持情况} \\
+\midrule
+顺序结构 & 逐行执行 & \checkmark~行级追踪 \\
+选择结构 & \texttt{if / elif / else} & \checkmark~分支覆盖 \\
+循环结构 & \texttt{for / while} & \checkmark~进入/跳过 \\
+异常处理 & \texttt{try / except} & \checkmark~正常/异常路径 \\
+函数调用 & \texttt{def / return} & \checkmark~调用链+参数 \\
+嵌套结构 & 组合使用 & \checkmark~递归追踪 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\Huge{\centerline{谢谢！}}
 \end{frame}
 
 %----------------------------------------------------------------------------------------

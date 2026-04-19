@@ -181,7 +181,7 @@
 }
 \fancypagestyle{main}{
     \fancyhf{}
-    \fancyhead[CE]{\zihao{5}\songti 华南理工大学学士学位论文}
+    \fancyhead[CE]{\zihao{5}\songti 华南理工大学课程报告}
     \fancyhead[CO]{\zihao{5}\songti \leftmark}
     \fancyfoot[C]{\zihao{5}\thepage}
     \renewcommand{\headrulewidth}{1pt}
@@ -321,7 +321,7 @@
         \end{figure}
         \begin{center}
             \zihao{0}
-            \heiti{\vspace{-2.5em}研究生课程报告}
+            \heiti{\vspace{-2.5em}本科生课程报告}
         \end{center}
         \begin{center}
             \zihao{1}
