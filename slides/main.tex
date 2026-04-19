@@ -1,0 +1,235 @@
+\documentclass[presentation,aspectratio=169]{ctexbeamer}
+
+\setbeamertemplate{sidebar left}[frame number]
+\hypersetup{pdfpagemode=FullScreen}
+\usetheme{SCUT}
+
+%----------------------------------------------------------------------------------------
+%	TITLE PAGE
+%----------------------------------------------------------------------------------------
+
+\title{PageIndex}
+\subtitle{Vectorless, Reasoning-based RAG}
+\author{许宇鸿}
+\institute
+{
+计算机科学与工程学院 \\ % Your institution for the title page
+\medskip
+}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+\begin{frame}
+\frametitle{Overview}
+\tableofcontents
+\end{frame}
+
+%----------------------------------------------------------------------------------------
+%	PRESENTATION SLIDES
+%----------------------------------------------------------------------------------------
+
+\section{研究背景}
+\begin{frame}
+\frametitle{研究背景：传统 RAG 的局限}
+\begin{itemize}
+    \item 传统向量检索依赖\textbf{语义相似度}而非真正的\textbf{相关性}
+    \item 向量化需要 Chunking（分块），破坏文档原有结构
+    \item 长文档场景下检索精度不足，缺乏可解释性
+    \item 专业领域文档（金融、法律、学术）需要\textbf{多步推理}才能找到关键信息
+\end{itemize}
+\vspace{0.5cm}
+\centering
+\textbf{核心洞察：Similarity $\neq$ Relevance — 真正的检索需要推理能力}
+\end{frame}
+
+%------------------------------------------------
+
+\section{PageIndex 框架}
+\begin{frame}
+\frametitle{PageIndex：无向量、基于推理的 RAG}
+受 AlphaGo 启发，PageIndex 提出了一种全新的检索范式：
+\begin{enumerate}
+    \item \textbf{树结构索引}：将长文档转化为层次化的"目录"树
+    \item \textbf{推理式检索}：利用 LLM 在树结构上进行推理式搜索
+    \item \textbf{类人检索}：模拟人类专家浏览和提取知识的方式
+\end{enumerate}
+\vspace{0.3cm}
+\begin{block}{核心特点}
+\begin{itemize}
+    \item 无需向量数据库（No Vector DB）
+    \item 无需分块处理（No Chunking）
+    \item 更好的可解释性与可追溯性
+\end{itemize}
+\end{block}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\frametitle{两步工作流程}
+\textbf{Step 1: 树结构索引生成}
+\begin{itemize}
+    \item 解析 PDF 文档，生成层次化树索引
+    \item 每个节点包含标题、页码范围、摘要
+\end{itemize}
+\vspace{0.3cm}
+\textbf{Step 2: 推理式树搜索}
+\begin{itemize}
+    \item LLM 在树结构上进行逐层推理
+    \item 根据问题语义选择最相关的分支
+    \item 返回精确的页码和段落引用
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{树结构索引示例}
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\begin{block}{JSON 结构}
+\tiny
+\begin{verbatim}
+{
+  "title": "Financial Stability",
+  "node_id": "0006",
+  "start_index": 21,
+  "end_index": 22,
+  "summary": "The Federal Reserve ...",
+  "nodes": [
+    {
+      "title": "Monitoring ...",
+      "node_id": "0007",
+      "start_index": 22,
+      "end_index": 28
+    },
+    {
+      "title": "Cooperation ...",
+      "node_id": "0008",
+      "start_index": 28,
+      "end_index": 31
+    }
+  ]
+}
+\end{verbatim}
+\end{block}
+\end{column}
+\begin{column}{0.45\textwidth}
+\begin{block}{节点属性}
+\begin{itemize}
+    \item \texttt{title}: 章节标题
+    \item \texttt{node\_id}: 唯一标识
+    \item \texttt{start/end\_index}: 页码范围
+    \item \texttt{summary}: 内容摘要
+    \item \texttt{nodes}: 子节点列表
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+%------------------------------------------------
+
+\section{PathTracer：执行路径追踪}
+\begin{frame}
+\frametitle{PathTracer：代码执行路径追踪与覆盖率分析}
+项目中的 \texttt{pathtracer} 模块，用于追踪 Python 程序的执行路径：
+\begin{itemize}
+    \item \textbf{分支追踪}：记录 if/else/for/while/try 等分支的执行情况
+    \item \textbf{函数调用链}：记录函数调用的深度、参数和返回值
+    \item \textbf{覆盖率报告}：生成 HTML/JSON/文本格式的覆盖率报告
+\end{itemize}
+\vspace{0.3cm}
+\begin{block}{使用示例}
+\tiny
+\texttt{python -m pathtracer.cli agent\_pageindex.py --query "..." --doc-top-k 3}
+\end{block}
+\end{frame}
+
+%------------------------------------------------
+
+\section{实验与应用}
+\begin{frame}
+\frametitle{FinanceBench 基准测试}
+基于 PageIndex 构建的 Mafin 2.5 系统在 FinanceBench 上达到 \textbf{98.7\%} 准确率：
+\vspace{0.3cm}
+\begin{table}
+\centering
+\begin{tabular}{lc}
+\toprule
+\textbf{系统} & \textbf{准确率} \\
+\midrule
+Mafin 2.5 (PageIndex) & 98.7\% \\
+传统向量 RAG & $<$ 80\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+\vspace{0.3cm}
+\begin{itemize}
+    \item 在金融报告、SEC 文件等专业文档上表现优异
+    \item 层次化索引 + 推理式检索 $=$ 精准定位关键信息
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+
+\section{部署与应用场景}
+\begin{frame}
+\frametitle{部署方式与应用场景}
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\begin{block}{部署方式}
+\begin{itemize}
+    \item \textbf{本地部署}：开源代码自托管
+    \item \textbf{云服务}：Chat Platform / MCP / API
+    \item \textbf{企业版}：私有化部署
+\end{itemize}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{应用场景}
+\begin{itemize}
+    \item 金融报告分析
+    \item 法律文件检索
+    \item 学术论文问答
+    \item 技术文档导航
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+%------------------------------------------------
+
+\section{总结与展望}
+\begin{frame}
+\frametitle{总结与展望}
+\textbf{PageIndex 的核心贡献：}
+\begin{enumerate}
+    \item 提出\textbf{无向量、基于推理}的 RAG 新范式
+    \item 设计层次化\textbf{树结构索引}，保留文档原有结构
+    \item 在 FinanceBench 上实现 SOTA 性能
+\end{enumerate}
+\vspace{0.5cm}
+\textbf{未来方向：}
+\begin{itemize}
+    \item 支持更多文档格式（Word、PPT 等）
+    \item 多模态文档理解（图表、公式）
+    \item 更细粒度的推理与检索策略
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}
+\Huge{\centerline{谢谢！}}
+\end{frame}
+
+%----------------------------------------------------------------------------------------
+
+\end{document}
