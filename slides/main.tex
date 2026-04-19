@@ -569,23 +569,19 @@ $\bullet$ \texttt{demo\_conditionals(100)}\\
 \frametitle{被追踪的示例代码（2/2）：循环、异常与嵌套}
 {\footnotesize 除了 if/else，\texttt{demo.py} 还包含循环、异常处理和嵌套结构：}
 
-\vspace{0.1cm}
+\vspace{0.05cm}
 \begin{columns}[T]
 \begin{column}{0.48\textwidth}
-\begin{block}{\scriptsize for 循环}
-{\scriptsize
+{\tiny
 \begin{verbatim}
+# for 循环
 def demo_for_loop(items):
     total = 0
     for item in items:
         total += item
     return total
-\end{verbatim}}
-\end{block}
-\vspace{0.05cm}
-\begin{block}{\scriptsize while 循环}
-{\scriptsize
-\begin{verbatim}
+
+# while 循环
 def demo_while_loop(limit):
     results = []
     counter = 0
@@ -594,14 +590,12 @@ def demo_while_loop(limit):
         counter += 1
     return results
 \end{verbatim}}
-\end{block}
 \end{column}
 \begin{column}{0.48\textwidth}
-\begin{block}{\scriptsize try/except 异常处理}
-{\scriptsize
+{\tiny
 \begin{verbatim}
-def demo_exception_handling(
-        dividend, divisor):
+# try/except 异常处理
+def demo_exception_handling(dividend, divisor):
     try:
         result = dividend / divisor
     except ZeroDivisionError:
@@ -611,12 +605,8 @@ def demo_exception_handling(
     finally:
         pass
     return result
-\end{verbatim}}
-\end{block}
-\vspace{0.05cm}
-\begin{block}{\scriptsize 嵌套结构（循环+条件）}
-{\scriptsize
-\begin{verbatim}
+
+# 嵌套结构（条件 + 循环）
 def demo_nested(data, threshold):
     results = []
     if threshold > 0:
@@ -629,7 +619,6 @@ def demo_nested(data, threshold):
         results = data.copy()
     return results
 \end{verbatim}}
-\end{block}
 \end{column}
 \end{columns}
 \end{frame}
@@ -637,52 +626,119 @@ def demo_nested(data, threshold):
 %------------------------------------------------
 
 \begin{frame}[fragile]
-\frametitle{运行命令}
-{\footnotesize 一行命令即可追踪任意 Python 程序的执行路径，\textbf{不需要修改被追踪的代码}：}
+\frametitle{端到端流程（1/3）：静态分析 \texttt{cfg\_builder}}
+{\scriptsize 运行 \texttt{python -m pathtracer.cli pathtracer/demo.py} 时，第一步——静态分析：}
 
-\vspace{0.1cm}
-{\scriptsize
+\vspace{0.05cm}
+{\tiny
 \begin{verbatim}
-# 追踪 demo.py，输出文本报告到终端
-python -m pathtracer.cli pathtracer/demo.py
+# Step 1: 调用 CFGBuilder 解析 demo.py，找出所有分支点
+cfg = CFGBuilder()
+all_branches = cfg.build_from_file("pathtracer/demo.py")
 
-# 输出 HTML 格式的覆盖率报告（源码逐行高亮）
-python -m pathtracer.cli --format html -o report.html pathtracer/demo.py
+# 内部过程：
+#   ast.parse(源码)  →  构建 AST 树
+#   ast.walk(tree)    →  遍历所有节点
+#   对每个节点检查 isinstance(node, ast.If / ast.For / ast.While / ...)
 
-# 输出 JSON 格式（方便后续程序处理）
-python -m pathtracer.cli --format json -o report.json pathtracer/demo.py
-
-# 静默模式：只输出报告，不显示程序自身的打印
-python -m pathtracer.cli --quiet pathtracer/demo.py
+# 结果：找到 15 个分支点
+#   Line 32: IF     ← demo_conditionals 里的 if value < 0
+#   Line 34: IF     ← elif value == 0  (elif 也是 ast.If)
+#   Line 36: IF     ← elif value <= 10
+#   Line 38: IF     ← elif value <= 50
+#   Line 44: FOR    ← demo_for_loop 里的 for item in items
+#   Line 59: WHILE  ← demo_while_loop 里的 while counter < limit
+#   Line 67: TRY    ← demo_exception_handling 里的 try
+#   Line 69: EXCEPT ← except ZeroDivisionError
+#   Line 98: IF     ← demo_nested 里的 if threshold > 0
+#   Line 99: FOR    ← for item in data
+#   ... 共 15 个
 \end{verbatim}}
+\end{frame}
 
-\vspace{0.1cm}
-{\footnotesize \textbf{原理：}\texttt{cli.py} 用 \texttt{compile() + exec()} 在追踪环境下运行目标程序，追踪器自动记录一切。}
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{端到端流程（2/3）：动态追踪 \texttt{tracer}}
+{\scriptsize 第二步——用 \texttt{sys.settrace()} 追踪 demo.py 的实际执行过程：}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+# Step 2: 创建追踪器，执行 demo.py 中的所有函数
+tracer = PathTracer().trace_file("pathtracer/demo.py")
+with tracer:                           # 进入时调用 sys.settrace(callback)
+    # 以下是 demo.py 中 main() 实际调用的代码：
+    demo_conditionals(25)               # → 走 elif value<=50，"medium"
+    demo_conditionals(-5)               # → 走 if value<0，"negative"
+    demo_conditionals(0)                # → 走 elif value==0，"zero"
+    demo_for_loop([1, 2, 3, 4, 5])     # → for 循环体执行 5 次
+    demo_while_loop(5)                  # → while 循环体执行 5 次
+    demo_exception_handling(10, 2)      # → try 成功，走 try 分支
+    demo_exception_handling(10, 0)      # → 触发 ZeroDivisionError，走 except
+    demo_nested([3, 7, 2], 5)          # → if+for+while 嵌套全走
+# 退出时调用 sys.settrace(None)，停止追踪
+
+# tracer 在后台记录了每一行的执行：
+#   executed_lines = {32,33,34,35,36,37,38,39,44,45,46,47, ...}
+#   function_calls = [demo_conditionals(25)→"medium",
+#                     demo_conditionals(-5)→"negative", ...]
+\end{verbatim}}
+\end{frame}
+
+%------------------------------------------------
+
+\begin{frame}[fragile]
+\frametitle{端到端流程（3/3）：覆盖率计算 \texttt{reporter}}
+{\scriptsize 第三步——对比静态分析的 15 个分支与动态追踪的已执行行号，生成报告：}
+
+\vspace{0.05cm}
+{\tiny
+\begin{verbatim}
+# Step 3: 计算覆盖率
+reporter = CoverageReporter()
+report = reporter.analyze("pathtracer/demo.py", tracer)
+
+# analyze() 内部：
+#   1. cfg_builder.build_from_file() → 15 个分支点
+#   2. tracer.get_executed_lines()   → 已执行行号集合 {32,33,34,...}
+#   3. 逐分支检查：branch.line_no in executed_lines ?
+#      Line 32 (IF):     32 in set? → True  ✓
+#      Line 34 (IF):     34 in set? → True  ✓
+#      Line 69 (EXCEPT): 69 in set? → True  ✓  (被 (10,0) 触发)
+#      ...
+#   4. 统计：12 个 True / 15 总共 = 80.0%
+
+# 输出报告：
+print(reporter.format_report(report))      # 文本格式 → 终端打印
+reporter.format_report_html(report)       # HTML格式 → 源码逐行高亮
+reporter.format_report_json(report)       # JSON格式 → 供程序处理
+\end{verbatim}}
 \end{frame}
 
 %------------------------------------------------
 
 \begin{frame}[fragile]
 \frametitle{运行结果：文本报告}
-{\footnotesize 运行 \texttt{demo.py} 后生成的覆盖率报告：}
+{\footnotesize 运行 \texttt{demo.py} 时，里面\textbf{所有函数都会被执行}（conditionals、for\_loop、while\_loop、exception\_handling、nested……）。报告统计的是\textbf{整个文件}的覆盖情况：}
 
-\vspace{0.1cm}
-{\scriptsize
+\vspace{0.05cm}
+{\tiny
 \begin{verbatim}
 ============================================================
 EXECUTION PATH COVERAGE REPORT
 ============================================================
 
-Total Branches:   15
+Total Branches:   15          ← 来自所有函数的分支点总和
 Executed Branches: 12
 Coverage: 80.0%
 
-Branches by Type:
-  if         : 6
-  for        : 4
-  while      : 3
-  try        : 1
-  except     : 1
+Branches by Type:             ← 按类型分组统计
+  if         : 6              ← conditionals 里的 if/elif + nested 里的 if
+  for        : 4              ← for_loop + nested 里的 for
+  while      : 3              ← while_loop + nested 里的 while
+  try        : 1              ← exception_handling 里的 try
+  except     : 1              ← exception_handling 里的 except
 
 ============================================================
 EXECUTED BRANCHES:
@@ -694,36 +750,37 @@ EXECUTED BRANCHES:
     ...
 \end{verbatim}}
 
-\vspace{0.1cm}
-{\footnotesize 80\% 覆盖率意味着有 3 个分支未被执行（如 \texttt{except} 未触发、某个 \texttt{else} 未命中等）。}
+\vspace{0.05cm}
+{\footnotesize 80\% 覆盖率意味着有 3 个分支未被执行。下面单独分析 \texttt{demo\_conditionals} 这个函数，看看为什么不同输入会导致不同覆盖率。}
 \end{frame}
 
 %------------------------------------------------
 
 \begin{frame}
-\frametitle{不同测试输入的覆盖对比}
-{\footnotesize 以 \texttt{demo\_conditionals} 函数为例，不同输入覆盖不同分支：}
+\frametitle{聚焦分析：\texttt{demo\_conditionals} 的覆盖对比}
+{\footnotesize 单独看 \texttt{demo\_conditionals(value)} 函数：它有 5 个分支（value<0 / ==0 / <=10 / <=50 / else）。
+不同的 \texttt{value} 输入让程序走不同的路径，覆盖不同的分支：}
 
-\vspace{0.15cm}
+\vspace{0.1cm}
 \begin{table}
 \centering
 {\footnotesize
-\begin{tabular}{lccc}
+\begin{tabular}{lcccl}
 \toprule
-\textbf{测试输入} & \textbf{覆盖分支} & \textbf{未覆盖} & \textbf{覆盖率} \\
+\textbf{测试输入} & \textbf{走了哪条路} & \textbf{覆盖} & \textbf{未覆盖} & \textbf{覆盖率} \\
 \midrule
-\texttt{demo\_conditionals(25)} & 4/5 & \texttt{else} (value>50) & 80\% \\
-\texttt{demo\_conditionals(-5)} & 1/5 & 4条路径 & 20\% \\
-\texttt{demo\_conditionals(0)}  & 2/5 & 3条路径 & 40\% \\
-\textbf{综合多次调用} & \textbf{5/5} & \textbf{无} & \textbf{100\%} \\
+\texttt{demo\_conditionals(-5)} & value<0 $\rightarrow$ "negative" & 1/5 & 4条路径 & 20\% \\
+\texttt{demo\_conditionals(0)} & value==0 $\rightarrow$ "zero" & 2/5 & 3条路径 & 40\% \\
+\texttt{demo\_conditionals(25)} & value<=50 $\rightarrow$ "medium" & 4/5 & else分支 & 80\% \\
+\textbf{综合以上三次调用} & \textbf{覆盖全部5条路} & \textbf{5/5} & \textbf{无} & \textbf{100\%} \\
 \bottomrule
 \end{tabular}}
 \end{table}
 
-\vspace{0.15cm}
+\vspace{0.1cm}
 {\footnotesize
 \begin{block}{结论}
-单一测试输入只能覆盖部分路径。要达到高覆盖率，需要\textbf{设计多组不同的测试输入}，覆盖所有分支。\\[3pt]
+单一测试输入只能覆盖部分路径。要达到高覆盖率，需要\textbf{设计多组不同的测试输入}，覆盖所有分支。\\[2pt]
 这正体现了路径分析在软件测试中的价值：\textbf{量化测试充分性}，指导测试用例的补充。
 \end{block}}
 \end{frame}
