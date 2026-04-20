@@ -1,7 +1,7 @@
 {
-  "coverage_percentage": 31.818181818181817,
+  "coverage_percentage": 50.0,
   "total_branches": 22,
-  "executed_branches": 7,
+  "executed_branches": 11,
   "branches_by_type": {
     "sequential": 0,
     "if": 17,
@@ -31,7 +31,14 @@
         24,
         25,
         27,
-        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
         40,
         77,
         78,
@@ -81,6 +88,26 @@
           "line_no": 27,
           "branch_type": "if",
           "end_line": 28
+        },
+        {
+          "line_no": 29,
+          "branch_type": "if",
+          "end_line": 36
+        },
+        {
+          "line_no": 31,
+          "branch_type": "for",
+          "end_line": 35
+        },
+        {
+          "line_no": 32,
+          "branch_type": "if",
+          "end_line": 35
+        },
+        {
+          "line_no": 34,
+          "branch_type": "if",
+          "end_line": 35
         },
         {
           "line_no": 88,

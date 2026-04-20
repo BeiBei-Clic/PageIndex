@@ -21,13 +21,15 @@
     a4paper,
     12pt,
     openany,
-    zihao=-4
+    zihao=-4,
+    fontset=none
 ]{ctexbook}
 
 
 % 页面布局
 \RequirePackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry} % 设置页边距
 \setlength{\topmargin}{-1cm} % 设置上边距
+\setlength{\headheight}{14pt}
 % % 页眉页脚
 \RequirePackage{fancyhdr} % 页眉页脚设置
 
@@ -78,7 +80,7 @@
 
 % % 字体设置
 
-\setmonofont{Consolas}
+\setmonofont{Menlo}
 \RequirePackage{newtxtext}
 \RequirePackage{newtxmath, bm} % 用于设置数学公式字体
 
@@ -139,6 +141,11 @@
     AutoFakeBold,
     AutoFakeSlant
 ]
+
+\providecommand{\songti}{\CJKfamily{zhsong}}
+\providecommand{\heiti}{\CJKfamily{zhhei}}
+\providecommand{\kaishu}{\CJKfamily{zhkai}}
+\providecommand{\fangsong}{\CJKfamily{zhfs}}
 
 
 % 参考文献设置

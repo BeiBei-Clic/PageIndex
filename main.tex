@@ -2,6 +2,15 @@
 
 % 开始使用该模板请修改以下文件
 \input{docs/info}     % 在这里填写论文相关信息
+\lstset{
+    basicstyle=\small\ttfamily,
+    breaklines=true,
+    breakatwhitespace=false,
+    columns=fullflexible,
+    keepspaces=true,
+    showstringspaces=false,
+    upquote=true
+}
 
 \begin{document}
 % 论文前置部分
@@ -26,12 +35,6 @@
 % 论文后置部分
 \backmatter
 \renewcommand{\chaptermark}[1]{\markboth{\songti #1}{}}
-\include{docs/conclusion} % 结论
-\newclearpage
-
-% 致谢
-\include{docs/ack} % 致谢
-\newclearpage
 
 % 附录部分
 {

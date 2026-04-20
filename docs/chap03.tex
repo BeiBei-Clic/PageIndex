@@ -5,128 +5,309 @@
 \chapter{实验过程与结果分析}
 \label{chap:experiment}
 
-\section{实验设计与方法}
+\section{实验设计与评价指标}
 
-本实验的目标是验证PathTracer工具在分析真实Python程序时的有效性和准确性。我们选择PageIndex项目中的\texttt{agent\_pageindex.py}作为主要测试对象, 这是一个约130行的Python脚本, 实现了基于LangChain框架的文档问答Agent功能。该程序具有典型的Python应用特征: 包含多层条件判断（参数验证、类型检查、消息处理）、循环结构（消息处理、工具调用遍历）、函数调用（包含嵌套调用和调用树）、以及异常处理（API密钥检查、错误处理）。这些特征使其成为验证覆盖率分析工具的理想测试对象。
+为保证实验结果具有可重复性，本章采用\textbf{受控实验}方式对 \path{agent_pageindex.py} 进行覆盖率分析。被测对象仍然是 PageIndex 的真实入口脚本，但实验时不直接依赖外部网络调用，而是通过桩替换的方式固定 Agent 和工具返回值。这样处理的目的，是把实验变量收紧，让每一组用例都对应一个明确的控制流目标。
 
-实验设计了三个测试用例来验证不同执行路径下的覆盖率变化。TC1是基本查询测试, 使用默认参数执行一次查询, 预期覆盖程序的主要执行路径, 包括参数解析、环境配置、Agent创建和基本查询执行。TC2是详细输出模式测试, 在TC1的基础上增加\texttt{--verbose}参数, 这个参数会触发\texttt{\_print\_verbose\_stream}函数的执行, 该函数包含大量的消息处理逻辑和条件分支, 预期会显著提高覆盖率。TC3是自定义参数测试, 使用\texttt{--doc-top-k 5}参数来测试参数传递和处理的正确性, 预期覆盖率与TC1相近但验证不同参数值的行为。
+本章实验主要回答三个问题：
 
-为了更全面地展示工具能力, 我们还对PageIndex项目自带的演示程序\texttt{demo.py}进行了完整测试。该程序共251行, 是专门为展示各种控制流结构而设计的, 包含多层if/elif/else条件判断、for循环和while循环、try/except/else/finally异常处理、循环内嵌套条件语句、以及多层函数调用链。这个程序的控制流设计更加系统和完整, 可以更好地验证工具对各种程序结构的识别能力。
+\begin{itemize}
+    \item PathTracer 能否稳定识别 \path{agent_pageindex.py} 中全部 22 个控制结构入口；
+    \item 在普通模式、流式模式和列表型消息输入三种场景下，脚本分别会走到哪些路径；
+    \item 三组测试用例的结果并集能否覆盖全部 22 个控制结构入口。
+\end{itemize}
 
-\section{实验执行与数据收集}
+本章继续使用第二章定义过的控制结构命中率作为核心指标：
 
-实验在Windows 11 Pro环境下进行, 使用Python 3.10+版本, 所有工具仅依赖Python标准库, 无需安装第三方依赖。我们使用PathTracer的命令行接口执行测试, 并将结果保存为JSON格式以便后续分析。对于TC1测试, 执行命令\texttt{python -m pathtracer.cli -f json -o coverage\_tc1.json agent\_pageindex.py -- --query "test"}, 程序正常运行并输出查询结果, 追踪数据保存到JSON文件中。对于TC2测试, 执行命令\texttt{python -m pathtracer.cli -f json -o coverage\_tc2.json agent\_pageindex.py -- --query "test" --verbose}, 程序以详细模式运行, 输出了更丰富的执行过程信息。对于TC3测试, 执行命令\texttt{python -m pathtracer.cli -f json -o coverage\_tc3.json agent\_index.py -- --query "test" --doc-top-k 5}, 程序使用自定义参数执行。
+\[
+\text{Coverage} = \frac{\text{ExecutedBranches}}{\text{TotalBranches}} \times 100\%
+\]
 
-为了进行对比分析, 我们还使用Python社区广泛使用的coverage.py工具进行了相同的测试。coverage.py是Python生态中最流行的覆盖率分析工具, 它同样使用\texttt{sys.settrace}机制, 但其统计口径与PathTracer不同。coverage.py默认统计语句覆盖率（多少行代码被执行）, 开启\texttt{--branch}选项后统计分支覆盖率（布尔表达式的true/false跳转）。而PathTracer统计的是控制流结构入口覆盖率（多少个if/for/while/except块被进入）。两种口径各有优势: coverage.py的分支覆盖更精细（区分if的两个方向）, PathTracer的结构覆盖更直观（识别控制流结构）。我们在对比实验中使用\texttt{coverage run --branch -m pathtracer.demo}命令运行coverage.py并开启分支模式, 以进行尽可能公平的对比。
+这个公式里的分子表示“控制结构起始行被执行到”的数量，%
+分母表示静态分析阶段识别出的控制结构总数。%
+这个口径依然不是严格意义上的真假分支覆盖，因此后文即使出现 100\% 覆盖率，%
+也只能说明 22 个控制结构入口都被执行到了，不能说明每个判断的真分支和假分支都被分别验证过。
 
-\section{覆盖率结果分析}
+\section{实验环境与实验对象}
 
-三个测试用例对\texttt{agent\_pageindex.py}的覆盖率结果呈现出明显的差异。TC1测试的覆盖率为31.8\%, 执行了22个总分支中的7个。TC2测试的覆盖率显著提升至72.7\%, 执行了16个分支。TC3测试的覆盖率为31.8\%, 与TC1相同。这些数据表明, 测试用例的设计对覆盖率有巨大影响, 特别是verbose模式触发了大量额外的消息处理代码。
+\subsection{实验环境}
 
-为了更全面地评估测试套件的覆盖能力, 我们分析了三个测试用例的分支覆盖叠加情况。TC1和TC3覆盖的分支完全相同, 都集中在程序的主入口、参数解析、Agent创建和基本查询执行路径上。TC2独有覆盖了9个分支, 全部来自\texttt{\_print\_verbose\_stream}函数, 这个函数在第40-75行, 包含多层嵌套的for循环和if判断, 用于处理Agent的流式输出。当不使用verbose参数时, 这个函数根本不会被调用, 因此TC1和TC3无法覆盖其中的任何分支。将三个测试用例合并后, 测试套件的累计覆盖率仍为72.7\%, 因为TC1和TC3没有贡献任何新的分支覆盖。这说明当前的测试用例设计存在冗余, TC1和TC3在覆盖能力上是等价的, 未来的测试设计可以考虑用其他参数组合来覆盖更多分支。
+实验在当前项目环境中完成，关键配置如表 \ref{tab:exp-env} 所示。
 
-对\texttt{demo.py}的完整测试结果显示覆盖率为71.4\%, 执行了14个总分支中的10个。从分支类型来看, 7个if语句中执行了5个, 4个for循环中执行了3个, 2个while循环中执行了1个, 1个except块执行了1个。这些数据验证了PathTracer对各种控制流结构的识别和追踪能力。值得注意的是, while循环的覆盖率较低（50\%）, 这是因为\texttt{demo.py}中有两个while循环, 一个是\texttt{demo\_while\_loop}函数中的简单计数循环, 另一个是\texttt{demo\_nested\_structures}函数中的嵌套while循环。测试用例的设计使得第一个while循环总是被执行, 但第二个while循环依赖于输入数据的特定条件, 当数据元素小于阈值时循环不会执行。
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{实验环境配置}
+    \label{tab:exp-env}
+    \begin{tabular}{p{0.23\textwidth}p{0.62\textwidth}}
+        \toprule
+        项目 & 配置 \\
+        \midrule
+        运行平台 & Darwin arm64 \\
+        Python 版本 & 3.13.11 \\
+        主要依赖 & \path{langchain>=1,<2}，\path{langchain-openai}，\path{python-dotenv==1.1.0} \\
+        被测脚本 & \path{agent_pageindex.py} \\
+        追踪工具 & 自研工具 \texttt{PathTracer}（包名 \path{pathtracer}） \\
+        实验驱动脚本 & \path{tests/run_agent_pageindex_experiments.py} \\
+        结果文件 & \path{docs/coverage_tc1.json}、\path{docs/coverage_tc2.json}、\path{docs/coverage_tc3.json} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-\section{未覆盖分支分析}
+其中，\path{tests/run_agent_pageindex_experiments.py} 是本章实验的驱动脚本。它不会修改 \path{agent_pageindex.py} 本身，而是在实验进程里临时安装假的 \path{langchain}、\path{dotenv} 和 \path{pageindex.search} 模块，再通过 \path{runpy.run_path(..., run_name="__main__")} 的方式直接执行真实脚本。这样既保住了“被测对象是 PageIndex 入口脚本”这一前提，又把外部返回值变成了可精确控制的输入。
 
-深入分析未覆盖的分支有助于理解覆盖率的含义和局限性。对于\texttt{agent\_pageindex.py}, TC2测试后仍有6个分支未覆盖, 这些分支可以分为三类。第一类是防御性异常路径, 包括第26行（payload为None时返回空字符串）和第89行（API密钥未设置时抛出ValueError）。这些代码是防御性编程的一部分, 在正常测试流程中难以触发, 因为测试环境已经正确配置了API密钥, 且程序的输入经过验证不会为None。第二类是输入类型相关分支, 包括第29行（判断payload是否为list类型）和第32行（判断list中的item是否为str类型）。这些分支只有在\texttt{\_extract\_text}函数接收到list类型输入时才会执行, 而当前的测试用例中, 该函数接收的输入主要是dict类型或str类型。第三类是逻辑互斥分支, 主要是第126行（当messages为空时直接打印result）。这个分支与第124行（messages非空时打印最后一条消息的内容）是逻辑互斥的, 在同一次执行中不可能同时覆盖。因此, 72.7\%的覆盖率反映的是"有效业务路径已较充分覆盖", 而不是测试设计不足。
+\subsection{被测对象说明}
 
-对于\texttt{demo.py}, 未覆盖的4个分支也有其合理原因。\texttt{demo\_conditionals}函数包含一个else分支（第40行, value > 50时返回"large"）, 当前的测试输入值（25, -5, 0, 3, 30）都没有大于50, 因此这个分支未被触发。\texttt{demo\_nested\_structures}函数中有一个while循环（第113行）, 当threshold <= 0时循环体不会执行, 但当前测试都使用正数threshold。\texttt{demo\_function\_calls}函数中有一个if分支检查count <= 0, 但测试使用count=3。这些未覆盖分支都是可以通过补充测试用例来覆盖的, 不是工具的局限性。
+\path{agent_pageindex.py} 的总代码量约 130 行，控制结构主要集中在三个函数中：
 
-\section{与coverage.py的对比}
+\begin{itemize}
+    \item \path{_extract_text}：负责统一处理 \path{None}、字符串、列表等不同类型的消息内容；
+    \item \path{_print_verbose_stream}：负责消费流式消息，内部包含多层 \texttt{for} 循环、重复消息过滤、工具消息和模型消息分流；
+    \item \path{main}：负责参数解析、环境变量检查，以及普通模式和 \path{verbose} 模式之间的主流程切换。
+\end{itemize}
 
-与coverage.py的对比实验揭示了两种工具的不同设计理念和适用场景。在\texttt{demo.py}上, coverage.py（开启--branch模式）报告语句覆盖率为52\%, 分支覆盖率为50\%, 识别了4个分支点中有2个部分覆盖。PathTracer报告分支覆盖率为71.4\%, 识别了14个分支点中有10个被执行。两种工具的数值差异主要源于统计口径的不同: coverage.py的\texttt{--branch}模式统计的是布尔表达式的跳转（如\texttt{if x > 0:} 中\texttt{x > 0}为true和false两个方向）, 而PathTracer统计的是控制流结构的入口（如进入if块、进入for循环）。
+静态分析结果表明，该脚本共包含 22 个可统计的控制结构入口，其中 \texttt{if} 结构 17 个，\texttt{for} 结构 5 个。按函数拆分后的分布如表 \ref{tab:static-branch-distribution} 所示。
 
-两种工具的功能特性也存在显著差异。coverage.py的优势在于成熟稳定、报告格式丰富（支持XML输出便于CI集成）、社区支持广泛。PathTracer的独特优势在于: 支持函数调用树追踪, 能够记录函数调用的参数和返回值; 支持静态分析, 能够识别源代码中的所有控制流结构; 无需任何第三方依赖。这些特性使PathTracer更适合教学演示和调试分析场景, 而coverage.py更适合生产环境的持续集成和测试自动化。
+\begin{table}[htbp]
+    \centering
+    \caption{agent\_pageindex.py 静态控制结构分布}
+    \label{tab:static-branch-distribution}
+    \begin{tabular}{lccc}
+        \toprule
+        函数 & \texttt{if} 入口数 & \texttt{for} 入口数 & 合计 \\
+        \midrule
+        \path{_extract_text} & 5 & 1 & 6 \\
+        \path{_print_verbose_stream} & 7 & 4 & 11 \\
+        \path{main} & 5 & 0 & 5 \\
+        \midrule
+        总计 & 17 & 5 & 22 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-\section{工具局限性讨论}
+这个分布说明，\path{_print_verbose_stream} 和 \path{_extract_text} 两部分集中了脚本中大多数控制结构。如果消息形态不可控，这两部分就很容易留下明显覆盖空洞。
 
-在实验过程中, 我们也发现了PathTracer工具的一些局限性, 这些局限性源于\texttt{sys.settrace}机制本身和当前实现的设计选择。首先是性能开销问题, \texttt{sys.settrace}会显著降低程序执行速度（约10-100倍）, 因为每执行一行代码都会触发Python解释器的回调。这决定了PathTracer不适合在生产环境中常驻使用, 更适合开发调试阶段的分析。其次是多线程支持不完整, \texttt{sys.settrace}的追踪回调是线程局部的, 在多线程环境下可能无法完整追踪跨线程的执行路径。第三是动态代码支持有限, 对于通过\texttt{exec()}或\texttt{eval()}动态生成的代码, 由于没有关联的源文件, PathTracer无法进行静态分析和行号映射。第四是分支类型支持有限, 当前仅支持if/for/while/except等传统控制流结构, 不支持with语句、async/await异步语法、以及Python 3.10引入的match-case模式匹配。第五是分支方向未区分, 当前实现只判断分支是否被执行, 不区分if语句的true和false两个方向。
+\section{测试用例设计}
 
-这些局限性中, 前四项是\texttt{sys.settrace}机制的固有限制, 第五项是当前实现的设计选择（为了简化实现）。在实际使用中, 这些局限性通常不会影响PathTracer在教学演示和调试分析场景中的有效性, 但需要用户了解其边界条件。
+\subsection{设计原则}
 
-\section{执行路径追踪报告示例}
+本章测试用例围绕\textbf{目标路径}进行设计。每组用例只负责覆盖一类关键控制结构，三组结果求并集后再评估 22 个控制结构入口的整体覆盖情况。
 
-PathTracer的核心功能是记录程序执行路径并生成描述程序运行执行分支的报告。本节展示对\texttt{demo.py}进行完整追踪后生成的实际报告内容。
+设计原则如下：
 
-\subsection{覆盖率统计报告}
+\begin{itemize}
+    \item 被测对象固定为 \path{agent_pageindex.py}，不换成 demo 脚本；
+    \item 外部依赖全部桩化，避免网络和 LLM 输出随机性影响结果；
+    \item 每组用例只改变一种关键消息形态，便于解释覆盖率增量来自哪里；
+    \item 所有结果统一输出为 JSON，方便直接做行号集合分析。
+\end{itemize}
 
-运行PathTracer后, 首先生成的是覆盖率统计报告。报告以清晰的格式展示总体覆盖率、分支类型分布和已执行分支详情。以下是对\texttt{demo.py}执行后的实际报告输出:
+\subsection{测试用例定义}
 
-\begin{lstlisting}
-============================================================
-EXECUTION PATH COVERAGE REPORT
-============================================================
+三组实验场景如表 \ref{tab:testcases} 所示。
 
-Total Branches: 14
-Executed Branches: 10
-Coverage: 71.4%
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{实验测试用例}
+    \label{tab:testcases}
+    \begin{tabular}{p{0.12\textwidth}p{0.26\textwidth}p{0.44\textwidth}}
+        \toprule
+        用例 & 场景名 & 设计目的 \\
+        \midrule
+        TC1 & \path{normal\_string} & 普通模式下返回字符串型最终答案，作为普通调用路径基线 \\
+        TC2 & \path{verbose\_mixed} & 流式模式下返回混合消息，覆盖非字典块、重复消息、工具调用、空消息、\path{ToolMessage} 和 \path{AIMessage} 路径 \\
+        TC3 & \path{normal\_list} & 普通模式下返回列表型消息内容，专门覆盖 \path{_extract_text} 的列表输入路径 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
 
-Branches by Type:
-  if          : 7
-  for         : 4
-  while       : 2
-  except      : 1
+这里最关键的是 TC3。该用例专门针对 \path{_extract_text} 的列表输入路径设计，使最终消息内容固定为：
 
-============================================================
-EXECUTED BRANCHES:
-------------------------------------------------------------
-
-demo.py:
-  Line   32: if         [executed]
-  Line   34: if         [executed]
-  Line   36: if         [executed]
-  Line   38: if         [executed]
-  Line   54: for        [executed]
-  Line   70: while      [executed]
-  Line   89: except     [executed]
-  Line  110: if         [executed]
-  Line  111: for        [executed]
-  Line  113: while      [executed]
+\begin{lstlisting}[language={} ,caption={TC3 中固定的列表型消息内容}]
+["alpha fragment", {"type": "text", "text": "beta fragment"}]
 \end{lstlisting}
 
-从报告中可以看出, \texttt{demo.py}共包含14个控制流分支, 测试执行了其中10个, 覆盖率为71.4\%。按类型统计, 共有7个if语句、4个for循环、2个while循环和1个except块。已执行分支列表详细记录了每个被执行的分支及其所在行号。
+这样一来，\path{_extract_text} 中“判断为列表”“遍历列表”“字符串元素处理”“字典元素处理”四个控制结构都能稳定触发。
 
-\subsection{函数调用树报告}
+\section{实验执行过程}
 
-除了覆盖率统计, PathTracer还能记录程序执行过程中的函数调用关系, 生成函数调用树报告。调用树以缩进形式展示调用层级, 每个节点显示函数名、参数值和返回值。以下是\texttt{demo.py}执行后的函数调用树:
+\subsection{执行命令}
 
-\begin{lstlisting}
-FUNCTION CALL TREE:
-------------------------------------------------------------
-demo_conditionals(value=25) -> 'medium'
-demo_conditionals(value=-5) -> 'negative'
-demo_conditionals(value=0) -> 'zero'
-demo_for_loop(items=[1, 2, 3, 4, 5]) -> 15
-demo_while_loop(limit=5) -> [0, 2, 4, 6, 8]
-demo_exception_handling(dividend=10, divisor=2) -> 5.0
-demo_exception_handling(dividend=10, divisor=0) -> 0.0
-demo_nested_structures(data=[3, 7, 2], threshold=5)
-    -> [3, 2, 1, 0, -1, 7, 6, 5, 4, 3, 2, 1, 0, -1, -2]
-demo_function_calls(name='test', count=3) -> {...}
-  demo_conditionals(value=3) -> 'small'
-  demo_conditionals(value=30) -> 'medium'
-  demo_conditionals(value=-5) -> 'negative'
-  demo_for_loop(items=[0, 1, 2]) -> 3
-  demo_while_loop(limit=3) -> [0, 2, 4]
-  demo_exception_handling(dividend=100, divisor=3) -> 33.33...
-  demo_exception_handling(dividend=100, divisor=0) -> 0.0
-  demo_nested_structures(data=[5, 10, 15], threshold=3)
-      -> [5, 4, 3, 10, 9, 8, 15, 14, 13]
+三组实验通过同一个驱动脚本执行，对应命令如下：
+
+\begin{lstlisting}[language=bash, caption={实验执行命令}]
+python3 tests/run_agent_pageindex_experiments.py \
+    --scenario normal_string --output docs/coverage_tc1.json
+
+python3 tests/run_agent_pageindex_experiments.py \
+    --scenario verbose_mixed --output docs/coverage_tc2.json
+
+python3 tests/run_agent_pageindex_experiments.py \
+    --scenario normal_list --output docs/coverage_tc3.json
 \end{lstlisting}
 
-从调用树中可以清晰地看到: 顶层直接调用了\texttt{demo\_conditionals}函数3次, 分别传入参数25、-5和0, 返回值分别为'medium'、'negative'和'zero'。\texttt{demo\_function\_calls}函数内部又嵌套调用了多个其他函数, 这些子调用在报告中以缩进形式展示, 体现了函数调用的层级关系。这种调用树对于理解程序的动态行为和调试复杂调用链非常有帮助。
+\subsection{执行步骤}
 
-\subsection{执行路径分析}
+每组实验都按相同步骤完成：
 
-结合覆盖率报告和函数调用树, 可以对程序的执行路径进行深入分析。从\texttt{demo.py}的报告可以看出: 所有7个if语句都被执行, 说明测试用例覆盖了各种条件分支; 4个for循环执行了全部, 说明循环遍历逻辑完整; 2个while循环全部执行, 包括简单计数循环和嵌套条件循环; 1个except块被执行, 说明异常处理路径（除零错误）被触发。
+\begin{enumerate}
+    \item 在实验进程中安装假的 \path{langchain}、\path{dotenv} 和 \path{pageindex.search} 模块；
+    \item 根据场景名创建对应的假 Agent；
+    \item 用 PathTracer API 将追踪目标固定为 \path{agent_pageindex.py}；
+    \item 通过 \path{runpy.run_path} 以 \path{__main__} 方式执行目标脚本；
+    \item 用 \path{CoverageReporter} 对执行结果做静态-动态对齐，并输出 JSON 报告。
+\end{enumerate}
 
-未覆盖的4个分支通过分析源代码可知: 第40行的else分支（value > 50时返回"large"）未触发, 因为测试数据中没有大于50的值; 第116行的else分支（threshold <= 0时直接复制数据）未触发, 因为所有测试都使用正数threshold。
+这里值得强调一点：实验虽然用了驱动脚本，但真正被追踪的文件始终是 \path{agent_pageindex.py}，而不是驱动脚本本身。因此，报告中的行号、分支数和覆盖率都仍然属于 PageIndex 入口脚本。
 
-\section{HTML报告可视化}
+\section{实验结果}
 
-PathTracer生成的HTML报告提供了直观的可视化展示。报告页面采用响应式布局设计, 顶部是三个统计卡片, 分别显示覆盖率百分比（大字号）、已执行分支数、总分支数。中间部分是按分支类型分类的统计, 每种类型一个卡片。主体部分是源代码展示区域, 使用深色背景和等宽字体, 左侧显示行号, 通过背景色和左边框颜色区分已执行（绿色）和未执行（红色）的代码行。这种设计使得用户能够快速定位未覆盖的代码区域。如果程序执行过程中有函数调用, 报告底部还会展示函数调用树, 以缩进形式展示调用层级, 每个调用节点显示函数名、参数和返回值。
+\subsection{总体覆盖率结果}
+
+三组实验结果如表 \ref{tab:pageindex-coverage} 所示。
+
+\begin{table}[htbp]
+    \centering
+    \caption{PageIndex 实验覆盖率结果}
+    \label{tab:pageindex-coverage}
+    \begin{tabular}{lcccc}
+        \toprule
+        测试用例 & 已命中分支数 & 总分支数 & 覆盖率 & 执行行数 \\
+        \midrule
+        TC1 & 7 & 22 & 31.8\% & 55 \\
+        TC2 & 16 & 22 & 72.7\% & 81 \\
+        TC3 & 11 & 22 & 50.0\% & 62 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+TC1 仍然是最低的，只覆盖了普通模式下的基础路径：参数解析、环境检查、\path{agent.invoke} 返回结果读取，以及 \path{_extract_text} 的字符串输入处理。它的作用更多是作为基线，而不是承担补覆盖的任务。
+
+TC2 是增量最大的用例，覆盖率达到 72.7\%。这一组新增的 16 个命中分支由事先设计好的混合流式消息稳定触发。具体来说，这一组消息同时覆盖了：
+
+\begin{itemize}
+    \item \path{chunk} 不是字典时的过滤；
+    \item \path{payload} 不是字典时的过滤；
+    \item 重复消息的去重；
+    \item 工具调用消息与工具调用列表遍历；
+    \item 空内容消息的跳过；
+    \item \path{ToolMessage} 和 \path{AIMessage} 两类消息的分流打印。
+\end{itemize}
+
+TC3 的覆盖率是 50.0\%，虽然低于 TC2，但它补的是 \path{_extract_text} 的四个关键列表路径分支。对整个实验设计来说，TC3 的价值不在于单次覆盖率高，而在于它把普通字符串输入难以覆盖的列表路径单独固定下来，形成可重复命中的测试对象。
+
+\subsection{分支交集与并集分析}
+
+为了更清楚地看到每组用例各自贡献了什么，把三组结果的分支集合拆开后可得到表 \ref{tab:branch-set-relation}。
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{三组测试用例的分支集合关系}
+    \label{tab:branch-set-relation}
+    \begin{tabular}{p{0.18\textwidth}p{0.25\textwidth}p{0.44\textwidth}}
+        \toprule
+        类别 & 行号 & 对应逻辑 \\
+        \midrule
+        三组共有 & 25, 27, 88, 116, 129 & 文本提取入口、字符串判定、API Key 检查、\path{verbose} 判定和脚本入口判断 \\
+        仅 TC2 命中 & 43, 44, 46, 47, 50, 52, 57, 58, 64, 67, 73 & 流式块遍历、非法块过滤、消息循环、去重、工具调用、空消息处理、工具消息和模型消息分流 \\
+        仅 TC3 命中 & 29, 31, 32, 34 & \path{_extract_text} 的列表判定、列表遍历、字符串元素处理和字典元素处理 \\
+        仅 TC1 命中 & 无 & 基线用例本身不提供独占增量 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+从这个结果可以看出，TC1 主要提供普通模式基线，本身不带来独占增量；决定整体覆盖效果的是 TC2 和 TC3。TC2 负责覆盖 \path{_print_verbose_stream} 中的流式处理逻辑，TC3 负责覆盖 \path{_extract_text} 的列表路径，两者分工清晰，也符合“围绕控制结构设计实验”的思路。
+
+\subsection{累计覆盖结果}
+
+把三组实验的已命中分支做并集统计之后，可以得到完整的 22 个控制结构入口：
+
+\begin{lstlisting}[language={} ,caption={三组实验结果的分支并集}]
+25, 27, 29, 31, 32, 34, 43, 44, 46, 47, 50, 52,
+57, 58, 64, 67, 73, 88, 116, 121, 123, 129
+\end{lstlisting}
+
+这意味着三组实验结果求并集后，累计覆盖率达到：
+
+\[
+\frac{22}{22} \times 100\% = 100.0\%
+\]
+
+这里的“100\%”只对应控制结构入口的全覆盖。它说明 \path{agent_pageindex.py} 中所有 22 个静态控制结构都至少被执行到过一次；但它不意味着真假分支方向都被完整区分，也不意味着底层 PageIndex 检索模块已经被完整测透。这一点后面还会再说明。
+
+\section{结果解释与路径分析}
+
+\subsection{TC1：普通模式基线路径}
+
+TC1 的路径最简单。程序进入 \path{main} 后，完成参数解析、环境变量检查和 Agent 创建，随后走普通模式的 \path{agent.invoke} 分支，在第 121 行和第 123 行判断返回结果是否为字典、是否包含消息列表，最后把最后一条消息内容送进 \path{_extract_text}。由于返回内容为普通字符串，所以 \path{_extract_text} 只会停留在第 25 行和第 27 行附近，不会进入列表路径。
+
+这个用例的意义在于给后两组实验提供对照。它告诉我们：如果只验证最常见的普通调用路径，入口脚本里其实还有一大半结构不会被触发。
+
+\subsection{TC2：流式混合消息路径}
+
+TC2 是本组实验的主力用例。它把程序显式带进 \path{verbose} 模式，并且在流式返回里依次制造了五类事件：
+
+\begin{itemize}
+    \item 非字典 \path{chunk}，触发第 44 行过滤；
+    \item 字典 \path{chunk} 但 \path{payload} 不是字典，触发第 47 行过滤；
+    \item 带 \path{tool_calls} 的消息，触发第 57 行和第 58 行；
+    \item 重复消息，触发第 52 行；
+    \item 空内容消息、\path{ToolMessage} 和 \path{AIMessage}，分别触发第 64、67、73 行。
+\end{itemize}
+
+这种设计比单纯加一个 \path{--verbose} 参数更有效，因为它不是笼统地进入流式模式，而是把流式模式内部的关键分支一个个拆开打。这样得到的 72.7\% 覆盖率，不依赖真实消息流的随机形态，而是直接由测试数据控制。
+
+\subsection{TC3：列表型消息内容路径}
+
+TC3 是本章实验中用于补齐列表处理路径的关键用例。它依然走普通模式，但把最终消息内容固定成“字符串 + 文本字典”的列表。这样程序在调用 \path{_extract_text} 时，会连续经过以下结构：
+
+\begin{itemize}
+    \item 第 29 行：判断 \path{payload} 是 \path{list}；
+    \item 第 31 行：遍历列表元素；
+    \item 第 32 行：处理字符串元素；
+    \item 第 34 行：处理 \path{\{"type": "text"\}} 形式的字典元素。
+\end{itemize}
+
+这四处结构都集中在同一条列表输入路径上。TC3 把这条路径单独抽出来验证，所以它虽然单次覆盖率只有 50.0\%，但在整个实验设计里反而是不可替代的一组。
+
+\subsection{实验设计说明}
+
+本组实验之所以采用受控输入而不是直接依赖真实查询返回，主要有两个原因。
+
+第一，变量更可控。查询参数、外部返回形态和脚本内部路径这三者如果同时变化，覆盖率差异就很难解释清楚；将外部返回固定为预设场景后，每个增量都可以明确对应到具体控制结构。
+
+第二，结论更可复查。三组结果都可以通过 \path{tests/run_agent_pageindex_experiments.py} 重新生成，不依赖网络、不依赖模型当时的随机输出，也不依赖某次数据库返回恰好是什么内容。对于课程实验报告来说，这一点非常重要，因为它让“为什么打到了这些行”变成了可验证的事实，而不是一次偶然运行的现象。
+
+\section{实验结论与局限}
+
+\subsection{实验结论}
+
+本章实验表明，PathTracer 可以在 PageIndex 真实入口脚本 \path{agent_pageindex.py} 上稳定工作，并通过受控输入把 22 个控制结构入口全部命中。具体来说：
+
+\begin{itemize}
+    \item TC1 覆盖普通模式基线路径，覆盖率为 31.8\%；
+    \item TC2 覆盖流式处理路径，覆盖率为 72.7\%；
+    \item TC3 覆盖列表型消息内容路径，覆盖率为 50.0\%；
+    \item 三组结果取并集后，累计覆盖率达到 100.0\%。
+\end{itemize}
+
+这说明 PathTracer 至少在入口脚本这一层，已经具备了较完整的控制结构检测能力。更重要的是，这一覆盖结果来自明确的测试目标与受控输入设计，而不是依赖外部返回内容的偶然形态。
+
+\subsection{仍然存在的局限}
+
+即使本章已经拿到了 100.0\% 的控制结构命中率，也不能把这个结果说得过头。它至少还有两个边界。
+
+\begin{itemize}
+    \item 第一，这个 100.0\% 只代表控制结构入口全覆盖，不代表真假分支方向全覆盖。第 88 行和第 116 行就是最典型的例子：这一行判断被执行到了，但条件真假并没有被分别统计。
+    \item 第二，本章重点覆盖的是 \path{agent_pageindex.py} 入口脚本，而不是 \path{pageindex/search.py} 这类更深层模块。也就是说，当前实验主要验证了“入口脚本路径是否可测”，还没有展开到底层检索逻辑的更深层覆盖分析。
+\end{itemize}
+
+这两个限制并不削弱本章的主要结论，但需要如实写出来。否则只报一个 100\%，很容易让人误以为整个 PageIndex 项目都已经被充分测试了。
 
 \section{本章小结}
 
-本章通过完整的实验验证了PathTracer工具的有效性。实验结果表明, 工具能够准确识别Python程序中的控制流分支, 追踪程序执行路径, 计算覆盖率, 并生成可视化报告。三个测试用例的覆盖率从31.8\%到72.7\%不等, 验证了测试用例设计对覆盖率的显著影响。与coverage.py的对比分析揭示了两种工具的不同统计口径和功能特性。未覆盖分支的分析表明, 72.7\%的覆盖率是合理的, 因为未覆盖分支主要是防御性代码、输入类型相关分支和逻辑互斥分支。工具的局限性主要源于\texttt{sys.settrace}机制本身, 这些局限性不影响其在教学演示和调试分析场景中的应用价值。
+本章围绕 PageIndex 入口脚本 \path{agent_pageindex.py} 设计了一组可重复的受控实验方案。该方案保持被测对象不变，但把外部依赖全部桩化，并通过 \path{tests/run_agent_pageindex_experiments.py} 生成可复现的覆盖率结果。三组用例分别覆盖普通模式基线路径、流式混合消息路径和列表型消息内容路径，累计覆盖率达到 100.0\%。
+
+更关键的是，本章把“覆盖率为什么会变化”讲清楚了：TC2 负责打通流式处理逻辑，TC3 负责补齐 \path{_extract_text} 的列表路径，二者合起来才真正把 22 个控制结构入口全部覆盖。这样得到的实验结果更适合作为正式实验章节的依据。
