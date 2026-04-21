@@ -1,0 +1,17 @@
+\setlength{\parindent}{2em}
+
+\makeatletter
+\let\reportsection\section
+\let\reportsubsection\subsection
+\let\reportsubsubsection\subsubsection
+\newcommand{\chapter}[1]{\reportsection{#1}}
+\renewcommand{\section}[1]{\reportsubsection{#1}}
+\renewcommand{\subsection}[1]{\reportsubsubsection{#1}}
+\makeatother
+
+\input{docs/chap01}
+\input{docs/chap02}
+\input{docs/chap03}
+\input{docs/chap04}
+\appendix
+\input{docs/appendix1}

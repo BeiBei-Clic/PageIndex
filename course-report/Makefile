@@ -1,7 +1,9 @@
 src = main
+cover = cover
 
-pdf: clean main.tex main.bib
-	latexmk $(src) -shell-escape -xelatex
+pdf: clean cover.tex main.tex body.tex
+	latexmk $(cover) -xelatex
+	latexmk $(src) -xelatex
 
 show:
 	xdg-open $(src).pdf
@@ -12,8 +14,12 @@ clean:
 		*.aux \
 		*.bbl \
 		*.blg \
+		*.bcf \
 		*.dvi \
 		*.ent \
+		*.fdb_latexmk \
+		*.fls \
+		*.hd \
 		*.loa \
 		*.lof \
 		*.lot \
@@ -22,16 +28,7 @@ clean:
 		*.out \
 		.fuse* \
 		*.run.xml \
-		*.bcf \
 		*.xdv \
-		*.synctex.gz
-	-@find . -name *.aux -exec rm {} \;
-
-update:
-#自动下载最新cls并备份旧版替换
-	-@mv ./scutthesis.cls ./scutthesis.cls.bak
-	-@wget -O ./scutthesis.cls https://raw.githubusercontent.com/ShevonKuan/SCUT-thesis/main/scutthesis.cls
-	-@echo "Update scutthesis.cls successfully!"
-# install-fonts:
-# 	cd fonts && chmod +x init_fonts.sh && ./init_fonts.sh
-
+		*.synctex.gz \
+		cover.pdf
+	-@find . -name '*.aux' -exec rm {} \;
