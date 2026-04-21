@@ -1,8 +1,6 @@
 src = main
-cover = cover
 
-pdf: clean cover.tex main.tex body.tex
-	latexmk $(cover) -xelatex
+pdf: clean cover.pdf main.tex body.tex
 	latexmk $(src) -xelatex
 
 show:
@@ -29,6 +27,5 @@ clean:
 		.fuse* \
 		*.run.xml \
 		*.xdv \
-		*.synctex.gz \
-		cover.pdf
+		*.synctex.gz
 	-@find . -name '*.aux' -exec rm {} \;
