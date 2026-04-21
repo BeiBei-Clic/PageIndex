@@ -1,0 +1,259 @@
+%%
+% 第四章：使用文档
+%%
+
+\chapter{使用文档}
+\label{chap:usage}
+
+\section{使用方式概览}
+
+PathTracer 提供命令行接口和 Python API 两种使用方式。命令行接口适合直接追踪单个 Python 脚本并生成覆盖率报告；Python API 适合嵌入测试代码、实验驱动脚本或其他自动化流程中。两种方式最终都围绕两个核心类展开：\texttt{PathTracer} 负责记录运行时执行行，\texttt{CoverageReporter} 负责将动态执行结果与静态控制结构对齐并生成报告。
+
+在本项目中，如果只是想快速查看某个脚本的大致覆盖情况，直接使用命令行接口即可；如果要像第三章那样为 \path{agent_pageindex.py} 注入受控输入、替换外部依赖并批量生成 JSON 结果，则更适合使用 Python API。
+
+\section{命令行接口}
+
+\subsection{基本语法}
+
+命令行入口位于 \path{pathtracer/cli.py}，可通过模块方式直接调用：
+
+\begin{lstlisting}[language=bash, caption={PathTracer 命令行基本语法}]
+python -m pathtracer.cli [--output OUTPUT] [--quiet] \
+    [--format {text,html,json}] program [program_args ...]
+\end{lstlisting}
+
+其中，\path{program} 表示被追踪的 Python 文件，后面的 \path{program\_args} 会原样传递给目标程序。如果目标程序本身也带有命令行参数，建议显式写出 \texttt{--} 分隔符，这样更不容易和 PathTracer 自己的参数混淆。
+
+\subsection{参数说明}
+
+表 \ref{tab:cli-options} 给出了当前命令行接口支持的主要参数。
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{PathTracer 命令行参数说明}
+    \label{tab:cli-options}
+    \begin{tabular}{p{0.25\textwidth}p{0.60\textwidth}}
+        \toprule
+        参数 & 说明 \\
+        \midrule
+        \path{program} & 需要追踪的 Python 脚本路径 \\
+        \path{-f, --format} & 报告输出格式，可选 \path{text}、\path{html}、\path{json}，默认值为 \path{text} \\
+        \path{-o, --output} & 报告输出文件路径；若省略该参数，\path{text} 格式直接输出到终端，\path{html} 和 \path{json} 会分别默认写入 \path{coverage-report.html} 与 \path{coverage-report.json} \\
+        \path{-q, --quiet} & 静默模式，只隐藏目标程序的标准输出，不影响最终报告输出 \\
+        \path{program\_args} & 传递给目标程序的参数列表；若以 \texttt{--} 开头，PathTracer 会自动去掉这个分隔符 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{常见命令}
+
+下面给出三种最常见的命令行用法。
+
+\begin{lstlisting}[language=bash, caption={命令行接口常见用法}]
+# 1. 直接在终端输出文本报告
+python -m pathtracer.cli target.py
+
+# 2. 生成 JSON 报告
+python -m pathtracer.cli -f json -o report.json \
+    target.py -- arg1 arg2
+
+# 3. 追踪 agent_pageindex.py，并把脚本参数放在 -- 之后
+python -m pathtracer.cli -f html -q \
+    agent_pageindex.py -- --query "test" --verbose
+\end{lstlisting}
+
+其中第三条命令对应的是本项目里的真实入口脚本 \path{agent_pageindex.py}。需要注意，这种直接追踪方式依赖目标脚本本身的运行环境已经准备好，例如相关依赖包已经安装、环境变量 \path{DEEPSEEK_API_KEY} 已经设置等。若要获得可重复的课程实验结果，更推荐使用第三章中的受控驱动脚本。
+
+\section{Python API 使用}
+
+\subsection{最小调用流程}
+
+当命令行接口无法满足需求时，可以直接调用 Python API。最小调用流程如代码 \ref{lst:api-minimal} 所示。
+
+\begin{lstlisting}[language=Python, caption={PathTracer 最小 API 调用流程}, label={lst:api-minimal}]
+from pathtracer import CoverageReporter, PathTracer
+
+tracer = PathTracer().trace_file("target.py")
+reporter = CoverageReporter()
+
+# 在 with 代码块中执行被测逻辑
+with tracer:
+    run_target()
+
+# 退出 with 后分析执行结果并生成报告
+report = reporter.analyze("target.py", tracer)
+print(reporter.format_report(report))
+\end{lstlisting}
+
+这段代码的核心只有三步：先用 \texttt{trace\_file} 指定追踪目标，再在 \texttt{with tracer:} 代码块里执行被测程序，最后调用 \texttt{CoverageReporter.analyze} 生成覆盖率报告。对于本地函数、测试夹具或小型脚本来说，这种方式已经足够。
+
+\subsection{本项目中的实际调用方式}
+
+第三章实验并不是直接用命令行去跑 \path{agent_pageindex.py}，而是把 PathTracer 嵌入到驱动脚本 \path{tests/run_agent_pageindex_experiments.py} 中。原因很简单：\path{agent_pageindex.py} 依赖外部模型和检索工具，若不先固定输入形态，覆盖率结果就难以重复。
+
+代码 \ref{lst:api-project} 展示了本项目里更接近真实实验的调用方式。
+
+\begin{lstlisting}[language=Python, caption={本项目中的 PathTracer API 用法}, label={lst:api-project}]
+import contextlib
+import io
+import runpy
+import sys
+
+from pathtracer.reporter import CoverageReporter
+from pathtracer.tracer import PathTracer
+
+tracer = PathTracer().trace_file("agent_pageindex.py")
+reporter = CoverageReporter()
+
+# 先准备目标脚本的命令行参数
+sys.argv = ["agent_pageindex.py", "--query", "test"]
+
+# 在受控实验中，通常会同时做两件事：
+# 1. 直接执行真实入口脚本；
+# 2. 重定向标准输出，避免目标脚本干扰报告生成。
+with tracer, contextlib.redirect_stdout(io.StringIO()):
+    runpy.run_path("agent_pageindex.py", run_name="__main__")
+
+report = reporter.analyze("agent_pageindex.py", tracer)
+json_text = reporter.format_report_json(report)
+\end{lstlisting}
+
+与最小示例相比，这里多了两个关键点。第一，目标脚本是通过 \path{runpy.run_path(..., run_name="__main__")} 执行的，因此被追踪对象仍然是真实入口文件；第二，实验脚本可以在执行前修改 \path{sys.argv}、注入桩模块、重定向标准输出，从而把不稳定的外部因素收束到可控范围内。这也是第三章实验能够稳定复现的原因。
+
+\subsection{函数调用记录}
+
+PathTracer 在运行时还会记录目标文件内部的函数调用信息。若需要访问这些数据，可直接调用 \texttt{tracer.get\_function\_calls()}。这一接口更适合在 Python API 场景下使用，因为当前标准文本报告主要聚焦覆盖率结果，函数调用记录通常需要调用方自行打印、筛选或二次序列化。
+
+\begin{lstlisting}[language=Python, caption={读取函数调用记录}]
+for call in tracer.get_function_calls():
+    print(call.function_name, call.arguments, call.return_value)
+\end{lstlisting}
+
+\section{报告格式说明}
+
+\subsection{文本报告}
+
+文本报告适合直接在终端中查看，重点展示三个信息：总控制结构数、已命中控制结构数，以及按类型统计的分支数量。若不指定 \path{-o} 参数，\path{text} 格式会直接输出到标准输出。
+
+\begin{lstlisting}[language={}, caption={文本报告示例}]
+============================================================
+EXECUTION PATH COVERAGE REPORT
+============================================================
+
+Total Branches: 22
+Executed Branches: 16
+Coverage: 72.7%
+
+Branches by Type:
+  if          : 17
+  for         : 5
+
+============================================================
+EXECUTED BRANCHES:
+------------------------------------------------------------
+
+agent_pageindex.py:
+  Line   43: for        [executed]
+  Line   44: if         [executed]
+  ...
+\end{lstlisting}
+
+\subsection{JSON 报告}
+
+JSON 报告适合自动化处理、批量统计或后续实验分析。第三章中的 \path{docs/coverage_tc1.json}、\path{docs/coverage_tc2.json} 和 \path{docs/coverage_tc3.json} 都是由这一格式生成的。
+
+\begin{lstlisting}[language={}, caption={JSON 报告结构示例}]
+{
+  "coverage_percentage": 72.72727272727273,
+  "total_branches": 22,
+  "executed_branches": 16,
+  "branches_by_type": {
+    "if": 17,
+    "for": 5
+  },
+  "file_reports": {
+    "agent_pageindex.py": {
+      "executed_lines": [25, 27, 43, 44, 46],
+      "executed_branches": [
+        {"line_no": 43, "branch_type": "for", "end_line": 74}
+      ]
+    }
+  },
+  "function_calls": []
+}
+\end{lstlisting}
+
+这个结构里最重要的部分是 \path{file_reports}。其中 \path{executed_lines} 记录动态执行到的代码行，\path{executed_branches} 记录被静态识别且在本次运行中命中的控制结构入口。对于本课程实验来说，后续统计工作主要也是围绕这两个字段展开。
+
+\subsection{HTML 报告}
+
+HTML 报告适合人工查看和截图展示。报告页面会给出覆盖率摘要、按类型统计的控制结构数量，以及按行着色的源代码视图。已执行行与未执行行采用不同背景色区分，因此更容易定位尚未命中的代码区域。
+
+如果在命令行中选择 \path{html} 格式但没有指定 \path{-o}，PathTracer 会默认生成 \path{coverage-report.html} 文件。对于单文件调试来说，这种方式最直观；对于课程实验统计，则通常仍以 JSON 报告更方便。
+
+\section{支持范围与结果解释}
+
+\subsection{当前版本支持的控制结构}
+
+PathTracer 的静态识别逻辑由 \path{pathtracer/cfg_builder.py} 实现。当前版本实际统计的控制结构如表 \ref{tab:supported-branches} 所示。
+
+\begin{table}[htbp]
+    \centering
+    \small
+    \caption{当前版本支持的控制结构类型}
+    \label{tab:supported-branches}
+    \begin{tabular}{p{0.22\textwidth}p{0.18\textwidth}p{0.42\textwidth}}
+        \toprule
+        语法结构 & 统计类型 & 说明 \\
+        \midrule
+        \path{if} 语句 & \path{if} & 记录条件判断入口行 \\
+        \path{for} 循环 & \path{for} & 记录循环入口行 \\
+        \path{while} 循环 & \path{while} & 记录条件循环入口行 \\
+        \path{except} 处理器 & \path{except} & 记录异常分支入口行 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+如果这些结构发生嵌套，内部结构仍会被单独统计。例如，一个 \path{for} 循环内部再包含 \path{if} 语句，那么这两个入口都会出现在报告中。
+
+需要说明的是，\path{models.py} 中虽然预留了 \path{else}、\path{elif}、\path{try} 等枚举值，但当前 \path{CFGBuilder} 还没有把这些结构纳入静态提取结果。因此，在解释当前版本报告时，应以表 \ref{tab:supported-branches} 中列出的四类结构为准。
+
+\subsection{覆盖率指标的含义}
+
+本工具当前给出的覆盖率，本质上是\textbf{控制结构入口命中率}。也就是说，只要某个 \path{if}、\path{for}、\path{while} 或 \path{except} 的起始行在运行时被执行到，就会记为“该控制结构已命中”。
+
+这种统计方式适合用来回答“程序走到了哪些控制结构”这一问题，但它并不等同于严格意义上的真假分支覆盖。例如，某一条 \path{if} 语句即使只走了真分支，只要条件判断所在行被执行到，该结构也会被记为已覆盖。因此，在阅读 PathTracer 报告时，应把它理解为路径分析与测试用例设计的辅助工具，而不是完整的判定覆盖工具。
+
+\subsection{追踪边界}
+
+当前 \path{PathTracer.trace_file} 的追踪范围限定在目标文件本身。换句话说，若被测脚本在运行时调用了其他模块，这些模块中的代码行不会自动计入当前文件的覆盖率结果。这个边界对本课程实验是可接受的，因为第三章的目标本来就是分析 \path{agent_pageindex.py} 这一入口脚本的控制流，而不是一次性测透整个 PageIndex 项目。
+
+\section{本项目中的推荐使用流程}
+
+结合本项目实际情况，推荐按以下方式使用 PathTracer：
+
+\begin{enumerate}
+    \item 若只是快速查看某个脚本的覆盖情况，直接使用命令行接口；
+    \item 若目标脚本依赖网络、模型返回值或外部工具结果，则优先使用 Python API 封装受控驱动；
+    \item 若需要复现本文第三章的实验结果，则直接运行 \path{tests/run_agent_pageindex_experiments.py}。
+\end{enumerate}
+
+第三章对应的三组实验命令如下：
+
+\begin{lstlisting}[language=bash, caption={本项目推荐的实验执行命令}]
+python3 tests/run_agent_pageindex_experiments.py \
+    --scenario normal_string --output docs/coverage_tc1.json
+
+python3 tests/run_agent_pageindex_experiments.py \
+    --scenario verbose_mixed --output docs/coverage_tc2.json
+
+python3 tests/run_agent_pageindex_experiments.py \
+    --scenario normal_list --output docs/coverage_tc3.json
+\end{lstlisting}
+
+这三个命令并不是 PathTracer 的通用 CLI，而是本项目针对 PageIndex 入口脚本封装的实验驱动。它们的作用，是在保持被测对象不变的前提下，把外部依赖收束为可控输入，并最终调用 PathTracer API 生成统一格式的覆盖率报告。
+
+\section{本章小结}
+
+本章从命令行接口、Python API、报告格式、支持范围和项目内推荐流程五个方面说明了 PathTracer 的实际使用方法。对于一般脚本，命令行接口已经足够；对于像 \path{agent_pageindex.py} 这样依赖外部组件的真实入口脚本，更合适的做法是通过 Python API 封装受控驱动程序。这样既能保留真实代码路径，又能保证实验结果可重复、可解释。

@@ -1,0 +1,185 @@
+{
+  "coverage_percentage": 72.72727272727273,
+  "total_branches": 22,
+  "executed_branches": 16,
+  "branches_by_type": {
+    "sequential": 0,
+    "if": 17,
+    "else": 0,
+    "elif": 0,
+    "for": 5,
+    "while": 0,
+    "try": 0,
+    "except": 0
+  },
+  "file_reports": {
+    "agent_pageindex.py": {
+      "executed_lines": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        8,
+        9,
+        10,
+        12,
+        14,
+        15,
+        16,
+        18,
+        24,
+        25,
+        26,
+        27,
+        28,
+        40,
+        41,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        56,
+        57,
+        58,
+        59,
+        60,
+        62,
+        63,
+        64,
+        65,
+        67,
+        68,
+        69,
+        70,
+        71,
+        73,
+        74,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        86,
+        87,
+        88,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        99,
+        100,
+        103,
+        104,
+        105,
+        107,
+        108,
+        109,
+        110,
+        111,
+        116,
+        117,
+        118,
+        129,
+        130
+      ],
+      "executed_branches": [
+        {
+          "line_no": 25,
+          "branch_type": "if",
+          "end_line": 26
+        },
+        {
+          "line_no": 27,
+          "branch_type": "if",
+          "end_line": 28
+        },
+        {
+          "line_no": 43,
+          "branch_type": "for",
+          "end_line": 74
+        },
+        {
+          "line_no": 44,
+          "branch_type": "if",
+          "end_line": 45
+        },
+        {
+          "line_no": 46,
+          "branch_type": "for",
+          "end_line": 74
+        },
+        {
+          "line_no": 47,
+          "branch_type": "if",
+          "end_line": 48
+        },
+        {
+          "line_no": 50,
+          "branch_type": "for",
+          "end_line": 74
+        },
+        {
+          "line_no": 52,
+          "branch_type": "if",
+          "end_line": 53
+        },
+        {
+          "line_no": 57,
+          "branch_type": "if",
+          "end_line": 60
+        },
+        {
+          "line_no": 58,
+          "branch_type": "for",
+          "end_line": 59
+        },
+        {
+          "line_no": 64,
+          "branch_type": "if",
+          "end_line": 65
+        },
+        {
+          "line_no": 67,
+          "branch_type": "if",
+          "end_line": 71
+        },
+        {
+          "line_no": 73,
+          "branch_type": "if",
+          "end_line": 74
+        },
+        {
+          "line_no": 88,
+          "branch_type": "if",
+          "end_line": 89
+        },
+        {
+          "line_no": 116,
+          "branch_type": "if",
+          "end_line": 118
+        },
+        {
+          "line_no": 129,
+          "branch_type": "if",
+          "end_line": 130
+        }
+      ]
+    }
+  },
+  "function_calls": []
+}
