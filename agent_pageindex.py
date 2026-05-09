@@ -48,7 +48,7 @@ def _print_verbose_stream(agent: Any, agent_input: dict) -> None:
                 continue
             messages = payload.get("messages") or []
             for message in messages:
-                message_id = getattr(message, "id", None) or f"{step_name}:{type(message).__name__}:{len(seen_messages)}"
+                message_id = getattr(message, "id", None) or f"{step_name}:{type(message).__name__}:{id(message)}"
                 if message_id in seen_messages:
                     continue
                 seen_messages.add(message_id)

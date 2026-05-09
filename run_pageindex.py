@@ -10,6 +10,12 @@ from pageindex.postgres_store import upsert_pageindex_document
 from pageindex.utils import ConfigLoader
 
 
+def _print_stored(document) -> None:
+    print(f"document_id: {document.document_id}")
+    print(f"doc_name: {document.doc_name}")
+    print(f"source_path: {document.source_path}")
+
+
 def ingest_pdf(pdf_path: str, user_opt: dict) -> object:
     opt = ConfigLoader().load(user_opt)
     toc_with_page_number = page_index_main(pdf_path, opt)
@@ -86,15 +92,9 @@ def main() -> None:
                 continue
             raise ValueError(f"Unsupported PDF path: {raw_pdf_path}")
 
-        deduplicated_pdf_paths = []
-        seen_pdf_paths = set()
-        for pdf_path in pdf_paths:
-            if pdf_path in seen_pdf_paths:
-                continue
-            seen_pdf_paths.add(pdf_path)
-            deduplicated_pdf_paths.append(pdf_path)
+        deduplicated_pdf_paths = list(dict.fromkeys(pdf_paths))
 
-        user_opt = {
+        resolved_user_opt = {k: v for k, v in {
             'model': args.model,
             'toc_check_page_num': args.toc_check_pages,
             'max_page_num_each_node': args.max_pages_per_node,
@@ -103,15 +103,12 @@ def main() -> None:
             'if_add_node_summary': args.if_add_node_summary,
             'if_add_doc_description': args.if_add_doc_description,
             'if_add_node_text': args.if_add_node_text,
-        }
-        resolved_user_opt = {k: v for k, v in user_opt.items() if v is not None}
+        }.items() if v is not None}
 
         if len(deduplicated_pdf_paths) == 1:
             document = ingest_pdf(deduplicated_pdf_paths[0], resolved_user_opt)
             print("Parsing done, saving to Postgres...")
-            print(f"document_id: {document.document_id}")
-            print(f"doc_name: {document.doc_name}")
-            print(f"source_path: {document.source_path}")
+            _print_stored(document)
         else:
             max_workers = args.max_workers
             if max_workers is None:
@@ -137,8 +134,7 @@ def main() -> None:
                     document = future.result()
                     completed_count += 1
                     print(f"[{completed_count}/{len(deduplicated_pdf_paths)}] Stored document_id={document.document_id}")
-                    print(f"doc_name: {document.doc_name}")
-                    print(f"source_path: {document.source_path}")
+                    _print_stored(document)
 
             print("Parsing done, saving to Postgres...")
             print(f"Completed: success={completed_count} failed={len(failed_jobs)}")
@@ -160,15 +156,14 @@ def main() -> None:
         # Use ConfigLoader to get consistent defaults (matching PDF behavior)
         config_loader = ConfigLoader()
         
-        # Create options dict with user args
-        user_opt = {
+        user_opt = {k: v for k, v in {
             'model': args.model,
+            'if_add_node_id': args.if_add_node_id,
             'if_add_node_summary': args.if_add_node_summary,
             'if_add_doc_description': args.if_add_doc_description,
             'if_add_node_text': args.if_add_node_text,
-            'if_add_node_id': args.if_add_node_id
-        }
-        
+        }.items() if v is not None}
+
         # Load config with defaults from config.yaml
         opt = config_loader.load(user_opt)
         
@@ -190,9 +185,7 @@ def main() -> None:
             result=toc_with_page_number,
         )
         print("Parsing done, saving to Postgres...")
-        print(f"document_id: {document.document_id}")
-        print(f"doc_name: {document.doc_name}")
-        print(f"source_path: {document.source_path}")
+        _print_stored(document)
 
 
 if __name__ == "__main__":
