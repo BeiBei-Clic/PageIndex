@@ -50,7 +50,7 @@ python ./list_pageindex_docs.py --doc-name main.pdf
 基于已构建的索引进行层级化搜索，返回相关内容。
 
 ```bash
-python -c "from pageindex.search import run_tree_search; result = run_tree_search(query='这份文档主要讲了什么？', model='deepseek/deepseek-chat', doc_top_k=3, max_concurrency=3, max_context=8000); print(result.answer); print(result.selected_entries); print(result.relevant_nodes[:3])"
+python -c "from pageindex.search import run_tree_search; result = run_tree_search(query='这份文档主要讲了什么？', model='deepseek/deepseek-v4-flash', doc_top_k=3, max_concurrency=3, max_context=8000); print(result.answer); print(result.selected_entries); print(result.relevant_nodes[:3])"
 ```
 
 ### 6. Agent 问答
