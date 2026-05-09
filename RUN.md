@@ -60,3 +60,33 @@ python -c "from pageindex.search import run_tree_search; result = run_tree_searc
 ```bash
 python ./agent_pageindex.py --query "端到端符号回归是指哪一篇参考文献，作者是谁" --doc-top-k 3 --max-concurrency 3 --verbose
 ```
+
+### 7. 法条数据入库（Omnilex 竞赛）
+
+将联邦法条和法院裁判数据解析入库，每个法律编（如 OR、ZGB、StPO）和每个 BGE 卷册作为一份文档。
+
+```bash
+# 法条 + 法院裁判一起入库
+python scripts/ingest_legal_data.py
+
+# 仅入库法条
+python scripts/ingest_legal_data.py --courts /dev/null
+
+# 指定自定义路径
+python scripts/ingest_legal_data.py --laws data/laws_de.csv --courts data/court_considerations.csv
+```
+
+### 8. 批量法条检索（Omnilex 竞赛）
+
+基于已入库的法条数据，对 val/test 集的查询进行三步检索（法律选择 → 法条搜索 → 引文提取），输出竞赛格式 CSV。
+
+```bash
+# 对 val 集检索
+python scripts/run_legal_retrieval.py --input data/val.csv
+
+# 对 test 集检索
+python scripts/run_legal_retrieval.py --input data/test.csv --output submissions/test_submission.csv
+
+# 限制前 2 条快速测试
+python scripts/run_legal_retrieval.py --input data/val.csv --limit 2
+```
