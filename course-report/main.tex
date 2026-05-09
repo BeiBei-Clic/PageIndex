@@ -1,4 +1,4 @@
-\documentclass[twoside,12pt]{article}
+\documentclass[12pt]{article}
 %% 加载几个常用的sty packages
 \RequirePackage{ifpdf}
 \RequirePackage{ifthen}
@@ -18,7 +18,7 @@
 % 页面设置
 %% 设置页面布局
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\RequirePackage[a4paper,left=3cm,right=2cm,bottom=2.5cm,top=2.5cm,%设置页面上下各为25mm
+\RequirePackage[a4paper,left=2.5cm,right=2.5cm,bottom=2.5cm,top=2.5cm,%设置页面上下各为25mm
 headheight=1.5cm,%页眉所占高度
 footskip=1.5cm %页脚所占高度
 ]{geometry}
@@ -274,12 +274,9 @@ ItalicFont=AdobeKaitiStd-Regular.otf
 \renewcommand{\lstlistingname}{列表}
 \pagestyle{fancy}
 \fancyfoot[C]{\wuhao \thepage}
-\fancyhead[RE]{}
-\fancyhead[RO]{}
-\fancyhead[LE]{}
-\fancyhead[LO]{}
-\fancyhead[CO]{\wuhao{华南理工大学课程论文}}
-\fancyhead[CE]{\wuhao{代码覆盖率及路径分析检测工具}}% 
+\fancyhead[R]{}
+\fancyhead[L]{}
+\fancyhead[C]{\wuhao{华南理工大学课程论文}}
 \renewcommand{\headrulewidth}{1.5pt}
 \renewcommand{\footrulewidth}{0pt}
 
