@@ -2,7 +2,7 @@ import importlib
 import importlib.util
 import logging
 import os
-import re
+import textwrap
 from datetime import datetime
 import json
 import copy
@@ -48,7 +48,9 @@ def count_tokens(text, model=None):
 
 
 def llm_completion(model, prompt, chat_history=None, return_finish_reason=False):
-    _require_dependency(litellm, "litellm")
+    if model:
+        model = model.removeprefix("litellm/")
+    max_retries = 10
     messages = list(chat_history) + [{"role": "user", "content": prompt}] if chat_history else [{"role": "user", "content": prompt}]
     response = litellm.completion(
         model=model,
@@ -64,7 +66,9 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
 
 
 async def llm_acompletion(model, prompt):
-    _require_dependency(litellm, "litellm")
+    if model:
+        model = model.removeprefix("litellm/")
+    max_retries = 10
     messages = [{"role": "user", "content": prompt}]
     response = await litellm.acompletion(
         model=model,
@@ -664,3 +668,28 @@ class ConfigLoader:
         self._validate_keys(user_dict)
         merged = {**self._default_dict, **user_dict}
         return config(**merged)
+
+def create_node_mapping(tree):
+    """Create a flat dict mapping node_id to node for quick lookup."""
+    mapping = {}
+    def _traverse(nodes):
+        for node in nodes:
+            if node.get('node_id'):
+                mapping[node['node_id']] = node
+            if node.get('nodes'):
+                _traverse(node['nodes'])
+    _traverse(tree)
+    return mapping
+
+def print_tree(tree, indent=0):
+    for node in tree:
+        summary = node.get('summary') or node.get('prefix_summary', '')
+        summary_str = f"  —  {summary[:60]}..." if summary else ""
+        print('  ' * indent + f"[{node.get('node_id', '?')}] {node.get('title', '')}{summary_str}")
+        if node.get('nodes'):
+            print_tree(node['nodes'], indent + 1)
+
+def print_wrapped(text, width=100):
+    for line in text.splitlines():
+        print(textwrap.fill(line, width=width))
+
