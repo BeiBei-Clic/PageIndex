@@ -6,3 +6,4 @@ __pycache__
 logs/
 parts/*
 json_results/*
+data
