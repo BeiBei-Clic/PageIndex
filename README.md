@@ -45,12 +45,12 @@
 
 # 📑 Introduction to PageIndex
 
-Are you frustrated with vector database retrieval accuracy for long professional documents? Traditional vector-based RAG relies on semantic *similarity* rather than true *relevance*. But **similarity �?relevance** �?what we truly need in retrieval is **relevance**, and that requires **reasoning**. When working with professional documents that demand domain expertise and multi-step reasoning, similarity search often falls short.
+Are you frustrated with vector database retrieval accuracy for long professional documents? Traditional vector-based RAG relies on semantic *similarity* rather than true *relevance*. But **similarity ≠ relevance** — what we truly need in retrieval is **relevance**, and that requires **reasoning**. When working with professional documents that demand domain expertise and multi-step reasoning, similarity search often falls short.
 
-Inspired by AlphaGo, we propose **[PageIndex](https://vectify.ai/pageindex)** �?a **vectorless**, **reasoning-based RAG** system that builds a **hierarchical tree index** from long documents and uses LLMs to **reason** *over that index* for **agentic, context-aware retrieval**.
+Inspired by AlphaGo, we propose **[PageIndex](https://vectify.ai/pageindex)** — a **vectorless**, **reasoning-based RAG** system that builds a **hierarchical tree index** from long documents and uses LLMs to **reason** *over that index* for **agentic, context-aware retrieval**.
 It simulates how *human experts* navigate and extract knowledge from complex documents through *tree search*, enabling LLMs to *think* and *reason* their way to the most relevant document sections. PageIndex performs retrieval in two steps:
 
-1. Generate a “Table-of-Contents�?**tree structure index** of documents
+1. Generate a “Table-of-Contents” **tree structure index** of documents
 2. Perform reasoning-based retrieval through **tree search**
 
 <div align="center">
@@ -164,13 +164,8 @@ OPENAI_API_KEY=your_openai_key_here
 ### 3. Generate PageIndex structure for your PDF
 
 ```bash
-python .\scripts\regenerate_test_results.py --pdf_dir .\tests\pdfs --pattern main.pdf
-
+python3 run_pageindex.py --pdf_path /path/to/your/document.pdf
 ```
-
-The generated tree structure and document metadata will be stored in the Postgres `pageindex_documents` table.
-
-Each ingested row includes `doc_name`, `doc_description`, and the full `tree_json`.
 
 <details>
 <summary>Optional parameters</summary>
@@ -187,44 +182,6 @@ You can customize the processing with additional optional arguments:
 --if-add-doc-description Add doc description (yes/no, default: yes)
 ```
 </details>
-
-If you want to generate results for all PDFs in a folder and ensure every result includes `doc_description`:
-
-```bash
-python3 scripts/regenerate_test_results.py \
-  --pdf_dir tests/pdfs
-```
-
-For the built-in test fixtures in this repo:
-
-```bash
-python3 scripts/regenerate_test_results.py
-```
-
-### 4. Query ingested documents from Postgres
-
-`search_pageindex` is now the first-class LangChain tool for Postgres-backed multi-document search. For Python code, use `run_tree_search(...)`. For agent-driven QA, use `agent_pageindex.py`.
-
-Breaking change: `pageindex.search.search_pageindex` is now a tool object. If you need direct programmatic access to the search pipeline, call `run_tree_search(...)` instead.
-
-```python
-from pageindex.search import run_tree_search
-
-result = run_tree_search(
-    query="How do the three operations in the editing flow work?",
-    doc_top_k=5,
-    max_concurrency=10,
-)
-
-print(result.answer)
-```
-
-```bash
-python3 agent_pageindex.py \
-  --query "How do the three operations in the editing flow work?" \
-  --doc-top-k 5 \
-  --max-concurrency 10
-```
 
 <details>
 <summary>Markdown support</summary>
@@ -255,7 +212,7 @@ python3 examples/agentic_vectorless_rag_demo.py
 
 This repo is designed for generating PageIndex tree structure for simple PDFs, but many real-world use cases involve complex PDFs that are hard to parse by classic Python tools. However, extracting high-quality text from PDF documents remains a non-trivial challenge. Most OCR tools only extract page-level content, losing the broader document context and hierarchy.
 
-To address this, we introduced PageIndex OCR �?the first long-context OCR model designed to preserve the global structure of documents. PageIndex OCR significantly outperforms other leading OCR tools, such as those from Mistral and Contextual AI, in recognizing true hierarchy and semantic relationships across document pages.
+To address this, we introduced PageIndex OCR — the first long-context OCR model designed to preserve the global structure of documents. PageIndex OCR significantly outperforms other leading OCR tools, such as those from Mistral and Contextual AI, in recognizing true hierarchy and semantic relationships across document pages.
 
 - Experience next-level OCR quality with PageIndex OCR at our [Dashboard](https://dash.pageindex.ai/).
 - Integrate PageIndex OCR seamlessly into your stack via our [API](https://docs.pageindex.ai/quickstart).
