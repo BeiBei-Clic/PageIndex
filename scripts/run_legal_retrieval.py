@@ -11,7 +11,6 @@ Usage:
 """
 import argparse
 import csv
-import os
 import sys
 from pathlib import Path
 
@@ -28,19 +27,6 @@ from pageindex.postgres_store import (
 from pageindex.utils import extract_json
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
-
-def make_llm(model: str):
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise ValueError("DEEPSEEK_API_KEY not set")
-    return init_chat_model(
-        model=model,
-        model_provider="openai",
-        base_url="https://api.deepseek.com",
-        api_key=api_key,
-        temperature=0,
-    )
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
@@ -107,7 +93,7 @@ def main() -> None:
     print(f"  {len(queries)} queries to process")
 
     # Init LLM
-    llm = make_llm(args.model)
+    llm = init_chat_model(f"deepseek:{args.model}", temperature=0)
 
     def ask(prompt: str) -> dict:
         """Call LLM and parse JSON response."""

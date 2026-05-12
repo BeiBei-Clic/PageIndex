@@ -8,14 +8,28 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
+应用 langchain-deepseek 思考模式修复（详见 [docs/langchain-deepseek-thinking-fix.md](docs/langchain-deepseek-thinking-fix.md)）：
+
+```bash
+python scripts/patch_langchain_deepseek.py
+```
+
 ### 2. 启动 PostgreSQL
 
 用 Docker 启动 PostgreSQL 数据库，并设置连接字符串环境变量。
 
 ```bash
 docker run -d -p 5432:5432 -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_DB=pageindex postgres
+```
 
+设置连接字符串环境变量：
+
+```bash
+# macOS / Linux
 export PAGEINDEX_POSTGRES_DSN="postgresql://user:password@localhost:5432/pageindex"
+
+# Windows PowerShell
+$env:PAGEINDEX_POSTGRES_DSN = "postgresql://user:password@localhost:5432/pageindex"
 ```
 
 ### 3. 解析 PDF 并构建索引
@@ -71,6 +85,9 @@ python scripts/ingest_legal_data.py
 
 # 仅入库法条
 python scripts/ingest_legal_data.py --courts /dev/null
+
+#只入库前10条法条      
+python scripts/ingest_legal_data.py --laws data/laws_de.csv --limit 10
 
 # 指定自定义路径
 python scripts/ingest_legal_data.py --laws data/laws_de.csv --courts data/court_considerations.csv

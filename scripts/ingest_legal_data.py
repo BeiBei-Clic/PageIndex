@@ -9,7 +9,6 @@ Usage:
 import argparse
 import asyncio
 import csv
-import os
 import sys
 from pathlib import Path
 
@@ -26,31 +25,40 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # ── Summary generation ──────────────────────────────────────────────────────
 
-async def _generate_node_summary(node, llm):
-    prompt = f"""You are given a part of a document, your task is to generate a summary of the partial document about what are main points covered in the partial document.
+MAX_CONCURRENT = 20
 
-    Partial Document Text: {node['text']}
+PROMPT_TEMPLATE = """You are given a part of a document, your task is to generate a summary of the partial document about what are main points covered in the partial document.
+
+    Partial Document Text: {text}
 
     Directly return the summary, do not include any other text.
     """
-    resp = await llm.ainvoke([HumanMessage(content=prompt)])
-    return resp.content
+
+
+async def _generate_summary(idx, text, llm, semaphore):
+    async with semaphore:
+        print(f"  [{idx}] generating...", flush=True)
+        resp = await llm.ainvoke([HumanMessage(content=PROMPT_TEMPLATE.format(text=text))])
+        return resp.content
 
 
 # ── Ingestion ───────────────────────────────────────────────────────────────
 
-async def _ingest_csv(csv_path: str, llm, uri_prefix: str) -> int:
+async def _ingest_csv(csv_path: str, llm, uri_prefix: str, limit=None) -> int:
     """Read CSV, each row becomes one document with summary, upsert to DB."""
     with open(csv_path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
+    if limit:
+        rows = rows[:limit]
 
-    for i, row in enumerate(rows, 1):
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    tasks = [_generate_summary(i, r.get("text", ""), llm, semaphore) for i, r in enumerate(rows, 1)]
+    print(f"  Generating summaries for {len(rows)} entries (concurrency={MAX_CONCURRENT})...")
+    summaries = await asyncio.gather(*tasks)
+
+    for row, summary in zip(rows, summaries):
         citation = row["citation"]
         text = row.get("text", "")
-        print(f"  [{i}/{len(rows)}] {citation}, generating summary...")
-
-        summary = await _generate_node_summary({"text": text}, llm)
-
         tree = {
             "doc_name": citation,
             "doc_description": summary,
@@ -64,27 +72,18 @@ async def _ingest_csv(csv_path: str, llm, uri_prefix: str) -> int:
 # ── Main ────────────────────────────────────────────────────────────────────
 
 async def async_main(args) -> None:
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise ValueError("DEEPSEEK_API_KEY not set")
-    llm = init_chat_model(
-        model=args.model,
-        model_provider="openai",
-        base_url="https://api.deepseek.com",
-        api_key=api_key,
-        temperature=0,
-    )
+    llm = init_chat_model(f"deepseek:{args.model}", temperature=0)
     total = 0
 
     if Path(args.laws).exists():
         print(f"\n=== Ingesting laws from {args.laws} ===")
-        total += await _ingest_csv(args.laws, llm, "laws")
+        total += await _ingest_csv(args.laws, llm, "laws", args.limit)
     else:
         print(f"Warning: {args.laws} not found, skipping laws.")
 
     if Path(args.courts).exists():
         print(f"\n=== Ingesting court decisions from {args.courts} ===")
-        total += await _ingest_csv(args.courts, llm, "courts")
+        total += await _ingest_csv(args.courts, llm, "courts", args.limit)
     else:
         print(f"Warning: {args.courts} not found, skipping courts.")
 
@@ -96,6 +95,7 @@ def main() -> None:
     parser.add_argument("--laws", default="data/laws_de.csv", help="Path to laws CSV")
     parser.add_argument("--courts", default="data/court_considerations.csv", help="Path to court considerations CSV")
     parser.add_argument("--model", default="deepseek-v4-flash", help="LLM model for summaries")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of rows to ingest")
     asyncio.run(async_main(parser.parse_args()))
 
 

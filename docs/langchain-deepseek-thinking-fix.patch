@@ -1,0 +1,117 @@
+--- /tmp/langchain_deepseek_original/langchain_deepseek/chat_models.py	2026-05-12 17:26:37.161347200 +0800
++++ D:/文稿/Projects/PageIndex/.venv/Lib/site-packages/langchain_deepseek/chat_models.py	2026-05-12 17:24:03.395418100 +0800
+@@ -28,6 +28,13 @@
+ _DictOrPydantic: TypeAlias = dict[str, Any] | BaseModel
+ 
+ 
++def _is_thinking_enabled_from_extra_body(extra_body: Any) -> bool:
++    if not isinstance(extra_body, dict):
++        return False
++    thinking = extra_body.get("thinking")
++    return isinstance(thinking, dict) and thinking.get("type") == "enabled"
++
++
+ class ChatDeepSeek(BaseChatOpenAI):
+     """DeepSeek chat model integration to access models hosted in DeepSeek's API.
+ 
+@@ -232,6 +239,83 @@
+             self.async_client = self.root_async_client.chat.completions
+         return self
+ 
++    def _is_thinking_enabled(
++        self,
++        payload: dict,
++        kwargs: dict[str, Any],
++    ) -> bool:
++        if getattr(self, "model_name", None) == "deepseek-reasoner":
++            return True
++        extra_body = (
++            payload.get("extra_body")
++            or kwargs.get("extra_body")
++            or getattr(self, "extra_body", None)
++        )
++        return _is_thinking_enabled_from_extra_body(extra_body)
++
++    def _get_original_messages(
++        self,
++        input_: LanguageModelInput,
++    ) -> list[BaseMessage] | None:
++        if isinstance(input_, list):
++            return input_
++        try:
++            prompt_value = self._convert_input(input_)
++            return prompt_value.to_messages()
++        except (AttributeError, TypeError, ValueError):
++            return None
++
++    def _coerce_deepseek_message_content(self, msg: dict) -> None:
++        if msg.get("role") == "tool" and isinstance(msg.get("content"), list):
++            msg["content"] = json.dumps(msg["content"])
++            return
++        if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
++            text_parts = [
++                block.get("text", "")
++                for block in msg["content"]
++                if isinstance(block, dict) and block.get("type") == "text"
++            ]
++            msg["content"] = "".join(text_parts)
++
++    def _inject_reasoning_content_if_needed(
++        self,
++        *,
++        msg: dict,
++        msg_index: int,
++        original_msgs: list[BaseMessage] | None,
++        thinking_enabled: bool,
++    ) -> None:
++        if not thinking_enabled:
++            return
++        if msg.get("role") != "assistant":
++            return
++        if msg.get("tool_calls") is None:
++            return
++        if "reasoning_content" in msg:
++            return
++        rc = ""
++        if original_msgs is not None and msg_index < len(original_msgs):
++            ak = getattr(original_msgs[msg_index], "additional_kwargs", None)
++            if isinstance(ak, dict):
++                rc = ak.get("reasoning_content") or ""
++        msg["reasoning_content"] = rc
++
++    def _prepare_payload_messages(
++        self,
++        payload: dict,
++        *,
++        original_msgs: list[BaseMessage] | None,
++        thinking_enabled: bool,
++    ) -> None:
++        for i, msg in enumerate(payload["messages"]):
++            self._coerce_deepseek_message_content(msg)
++            self._inject_reasoning_content_if_needed(
++                msg=msg,
++                msg_index=i,
++                original_msgs=original_msgs,
++                thinking_enabled=thinking_enabled,
++            )
++
+     def _get_request_payload(
+         self,
+         input_: LanguageModelInput,
+@@ -240,6 +324,16 @@
+         **kwargs: Any,
+     ) -> dict:
+         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
++
++        thinking_enabled = self._is_thinking_enabled(payload, kwargs)
++        original_msgs = self._get_original_messages(input_)
++
++        self._prepare_payload_messages(
++            payload,
++            original_msgs=original_msgs,
++            thinking_enabled=thinking_enabled,
++        )
++
+         for message in payload["messages"]:
+             if message["role"] == "tool" and isinstance(message["content"], list):
+                 message["content"] = json.dumps(message["content"])
