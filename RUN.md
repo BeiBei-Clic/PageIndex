@@ -75,7 +75,15 @@ python -c "from pageindex.search import run_tree_search; result = run_tree_searc
 python ./agent_pageindex.py --query "端到端符号回归是指哪一篇参考文献，作者是谁" --doc-top-k 3 --max-concurrency 3 --verbose
 ```
 
-### 7. 法条数据入库（Omnilex 竞赛）
+### 7. 清空数据库
+
+清空 `pageindex_documents` 表，用于重新入库。
+
+```bash
+python -c "import os; from dotenv import load_dotenv; load_dotenv(); import psycopg; conn = psycopg.connect(os.environ['PAGEINDEX_POSTGRES_DSN']); conn.cursor().execute('TRUNCATE pageindex_documents'); conn.commit(); print('Done')"
+```
+
+### 8. 法条数据入库（Omnilex 竞赛）
 
 将联邦法条和法院裁判数据解析入库，每个法律编（如 OR、ZGB、StPO）和每个 BGE 卷册作为一份文档。
 
@@ -93,7 +101,7 @@ python scripts/ingest_legal_data.py --laws data/laws_de.csv --limit 10
 python scripts/ingest_legal_data.py --laws data/laws_de.csv --courts data/court_considerations.csv
 ```
 
-### 8. 批量法条检索（Omnilex 竞赛）
+### 9. 批量法条检索（Omnilex 竞赛）
 
 基于已入库的法条数据，对 val/test 集的查询进行三步检索（法律选择 → 法条搜索 → 引文提取），输出竞赛格式 CSV。
 

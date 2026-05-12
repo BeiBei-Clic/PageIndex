@@ -19,13 +19,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
 from pageindex.postgres_store import (
     get_documents_by_ids,
     list_catalog_documents,
 )
-from pageindex.utils import extract_json
+
+
+class DocSelection(BaseModel):
+    doc_list: list[str] = Field(description="List of selected document IDs, ordered by relevance")
+
+
+class CitationRefinement(BaseModel):
+    citations: list[str] = Field(description="List of citation strings that are truly relevant")
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -46,11 +54,7 @@ Question: {query}
 Document catalog (doc_id | name | description):
 {catalog_text}
 
-Return a JSON object with:
-- "thinking": brief reasoning
-- "doc_list": list of doc_id strings, ordered by relevance, max {top_k}
-
-Return ONLY the JSON, nothing else."""
+Select up to {top_k} documents ordered by relevance."""
 
 CITATION_REFINEMENT_PROMPT = """You are a Swiss legal citation retrieval expert.
 
@@ -59,18 +63,12 @@ Given a legal question and a set of candidate legal texts, select ONLY the citat
 Question: {query}
 
 Candidate texts:
-{candidate_texts}
-
-Return a JSON object with:
-- "thinking": brief reasoning
-- "citations": list of citation strings that are truly relevant to the question
-
-Return ONLY the JSON, nothing else."""
+{candidate_texts}"""
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-async def _process_query(idx, row, llm, catalog_text, semaphore):
+async def _process_query(idx, row, doc_selector, citation_refiner, catalog_text, semaphore):
     """Process a single query: doc selection → citation refinement."""
     qid = row["query_id"]
     query = row["query"]
@@ -78,10 +76,13 @@ async def _process_query(idx, row, llm, catalog_text, semaphore):
 
     async with semaphore:
         # Step 1: Select relevant documents
-        resp = await llm.ainvoke([HumanMessage(content=DOC_SELECTION_PROMPT.format(
-            query=query, catalog_text=catalog_text, top_k=MAX_DOC_SELECTION,
-        ))])
-        doc_ids = extract_json(resp.content).get("doc_list", [])
+        selection: DocSelection = await doc_selector.ainvoke([
+            SystemMessage(content="Return a JSON object with a 'doc_list' field: list of doc_id strings ordered by relevance."),
+            HumanMessage(content=DOC_SELECTION_PROMPT.format(
+                query=query, catalog_text=catalog_text, top_k=MAX_DOC_SELECTION,
+            )),
+        ])
+        doc_ids = selection.doc_list
         if not doc_ids:
             print(f"  [{idx}] → (no docs selected)", flush=True)
             return {"query_id": qid, "predicted_citations": ""}
@@ -101,10 +102,13 @@ async def _process_query(idx, row, llm, catalog_text, semaphore):
             text = nodes[0].get("text", "") if nodes else ""
             candidate_texts += f"\n---\n[{doc.doc_name}]\n{text}"
 
-        resp = await llm.ainvoke([HumanMessage(content=CITATION_REFINEMENT_PROMPT.format(
-            query=query, candidate_texts=candidate_texts,
-        ))])
-        citations = extract_json(resp.content).get("citations", [])
+        refinement: CitationRefinement = await citation_refiner.ainvoke([
+            SystemMessage(content="Return a JSON object with a 'citations' field: list of citation strings that are truly relevant to the question."),
+            HumanMessage(content=CITATION_REFINEMENT_PROMPT.format(
+                query=query, candidate_texts=candidate_texts,
+            )),
+        ])
+        citations = refinement.citations
         predicted = ";".join(citations)
 
         print(f"  [{idx}] → {predicted[:120]}{'...' if len(predicted) > 120 else ''}", flush=True)
@@ -130,6 +134,8 @@ async def async_main(args) -> None:
 
     # Init LLM
     llm = init_chat_model(f"deepseek:{args.model}", temperature=0)
+    doc_selector = llm.with_structured_output(DocSelection, method="json_mode")
+    citation_refiner = llm.with_structured_output(CitationRefinement, method="json_mode")
 
     # Pre-build catalog text for doc selection
     catalog_text = "\n".join(
@@ -140,7 +146,7 @@ async def async_main(args) -> None:
     # Process queries concurrently
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
     tasks = [
-        _process_query(i, row, llm, catalog_text, semaphore)
+        _process_query(i, row, doc_selector, citation_refiner, catalog_text, semaphore)
         for i, row in enumerate(queries, 1)
     ]
     print(f"\nProcessing {len(queries)} queries (concurrency={MAX_CONCURRENT})...")
