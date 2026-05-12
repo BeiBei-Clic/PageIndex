@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """Ingest Swiss legal data (federal laws + court decisions) into PageIndex PostgreSQL.
 
-Each law code (OR, ZGB, StPO, ...) becomes one document whose tree is a flat
-list of article nodes.  Each BGE volume-section (BGE 137 IV, ...) becomes one
-document whose tree is a flat list of consideration nodes.
-
-Node summaries are generated per-node using async LLM calls, same pattern as
-pageindex/utils.py:generate_node_summary.
+Each row in the CSV becomes one document with a single-node tree.
 
 Usage:
     python scripts/ingest_legal_data.py [--laws data/laws_de.csv] [--courts data/court_considerations.csv]
@@ -15,9 +10,7 @@ import argparse
 import asyncio
 import csv
 import os
-import re
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -30,88 +23,45 @@ from pageindex.postgres_store import upsert_pageindex_document
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-# ── Config ───────────────────────────────────────────────────────────────────
 
-SUMMARY_TOKEN_THRESHOLD = 200  # short texts use original text as summary
-MAX_CONCURRENT_SUMMARIES = 20
+# ── Summary generation ──────────────────────────────────────────────────────
 
+async def _generate_node_summary(node, llm):
+    prompt = f"""You are given a part of a document, your task is to generate a summary of the partial document about what are main points covered in the partial document.
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+    Partial Document Text: {node['text']}
 
-def _law_code(citation: str) -> str:
-    parts = citation.strip().split()
-    return parts[-1] if parts else ""
-
-
-def _bge_volume_section(citation: str) -> str:
-    m = re.match(r"(BGE \d+ [IV]+)", citation)
-    return m.group(1) if m else ""
-
-
-# ── Summary generation (same pattern as pageindex/utils.py) ──────────────────
-
-async def _generate_node_summary(node, llm, semaphore):
-    """Generate summary for a single node. Short texts use original text directly."""
-    text = node.get("text", "") or ""
-    if len(text) / 4 < SUMMARY_TOKEN_THRESHOLD:
-        return text
-
-    prompt = f"""You are given a part of a document, your task is to generate a description of the partial document about what are main points covered in the partial document.
-
-    Partial Document Text: {text}
-
-    Directly return the description, do not include any other text.
+    Directly return the summary, do not include any other text.
     """
-    async with semaphore:
-        resp = await llm.ainvoke([HumanMessage(content=prompt)])
-        return resp.content
+    resp = await llm.ainvoke([HumanMessage(content=prompt)])
+    return resp.content
 
 
-async def _generate_node_summaries(nodes, llm):
-    """Generate summaries for all nodes in parallel with bounded concurrency."""
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_SUMMARIES)
-    tasks = [_generate_node_summary(n, llm, semaphore) for n in nodes]
-    summaries = await asyncio.gather(*tasks)
-    for node, summary in zip(nodes, summaries):
-        node["summary"] = summary
+# ── Ingestion ───────────────────────────────────────────────────────────────
 
-
-# ── Ingestion (unified for laws and courts) ─────────────────────────────────
-
-async def _ingest_grouped(csv_path: str, llm, key_extractor, uri_prefix: str) -> int:
-    """Read CSV, group by key_extractor, generate summaries, upsert to DB."""
-    groups: dict[str, list[dict]] = defaultdict(list)
-
+async def _ingest_csv(csv_path: str, llm, uri_prefix: str) -> int:
+    """Read CSV, each row becomes one document with summary, upsert to DB."""
     with open(csv_path, newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            key = key_extractor(row["citation"])
-            if not key:
-                continue
-            groups[key].append(row)
+        rows = list(csv.DictReader(f))
 
-    total_docs = 0
-    for key, rows in groups.items():
-        name = rows[0].get("title", key) if "title" in rows[0] else key
-        nodes = [
-            {"node_id": str(i).zfill(4), "title": r["citation"], "text": r.get("text", "")}
-            for i, r in enumerate(rows, 1)
-        ]
+    for i, row in enumerate(rows, 1):
+        citation = row["citation"]
+        text = row.get("text", "")
+        print(f"  [{i}/{len(rows)}] {citation}, generating summary...")
 
-        print(f"  [{total_docs+1}/{len(groups)}] {key}: {len(nodes)} entries, generating summaries...")
-        await _generate_node_summaries(nodes, llm)
+        summary = await _generate_node_summary({"text": text}, llm)
 
         tree = {
-            "doc_name": key,
-            "doc_description": f"{key} – {name} ({len(nodes)} entries)",
-            "structure": nodes,
+            "doc_name": citation,
+            "doc_description": summary,
+            "structure": [{"node_id": "0001", "title": citation, "text": text, "summary": summary}],
         }
-        upsert_pageindex_document(f"legal://{uri_prefix}/{key}", "md", tree)
-        total_docs += 1
+        upsert_pageindex_document(f"legal://{uri_prefix}/{citation}", "md", tree)
 
-    return total_docs
+    return len(rows)
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# ── Main ────────────────────────────────────────────────────────────────────
 
 async def async_main(args) -> None:
     api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -128,13 +78,13 @@ async def async_main(args) -> None:
 
     if Path(args.laws).exists():
         print(f"\n=== Ingesting laws from {args.laws} ===")
-        total += await _ingest_grouped(args.laws, llm, _law_code, "laws")
+        total += await _ingest_csv(args.laws, llm, "laws")
     else:
         print(f"Warning: {args.laws} not found, skipping laws.")
 
     if Path(args.courts).exists():
         print(f"\n=== Ingesting court decisions from {args.courts} ===")
-        total += await _ingest_grouped(args.courts, llm, _bge_volume_section, "courts")
+        total += await _ingest_csv(args.courts, llm, "courts")
     else:
         print(f"Warning: {args.courts} not found, skipping courts.")
 

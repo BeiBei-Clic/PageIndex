@@ -29,12 +29,23 @@ from pageindex.utils import extract_json
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+
+def make_llm(model: str):
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise ValueError("DEEPSEEK_API_KEY not set")
+    return init_chat_model(
+        model=model,
+        model_provider="openai",
+        base_url="https://api.deepseek.com",
+        api_key=api_key,
+        temperature=0,
+    )
+
 # ── Config ───────────────────────────────────────────────────────────────────
 
 DEFAULT_MODEL = "deepseek-v4-flash"
 MAX_DOC_SELECTION = 20
-MAX_NODE_DISPLAY = 4000
-MAX_CONTEXT_LENGTH = 80000
 
 # ── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -53,36 +64,18 @@ Return a JSON object with:
 
 Return ONLY the JSON, nothing else."""
 
-TREE_SEARCH_PROMPT = """You are searching within a legal document for relevant articles/considerations.
+CITATION_REFINEMENT_PROMPT = """You are a Swiss legal citation retrieval expert.
 
-Question: {query}
-Document: {doc_name} – {doc_description}
-
-Node titles (node_id: title | summary):
-{node_list_text}
-
-Return a JSON object with:
-- "thinking": brief reasoning
-- "node_list": list of node_id strings for relevant nodes
-
-Return ONLY the JSON, nothing else."""
-
-CITATION_EXTRACTION_PROMPT = """Based on the following retrieved legal articles and court considerations, extract ALL legal citations that are relevant to the question.
+Given a legal question and a set of candidate legal texts, select ONLY the citations that are truly relevant to the question.
 
 Question: {query}
 
-Retrieved content:
-{context}
+Candidate texts:
+{candidate_texts}
 
 Return a JSON object with:
 - "thinking": brief reasoning
-- "citations": list of citation strings in standard Swiss format
-
-Standard format examples:
-- Law articles: "Art. 221 Abs. 1 StPO", "Art. 308 Abs. 1 ZGB", "Art. 8 Abs. 1 ATSG"
-- Court decisions: "BGE 137 IV 122 E. 6.2", "1B_210/2023 E. 4.1"
-
-Include citations explicitly mentioned in the question AND any additional relevant ones found in the retrieved content.
+- "citations": list of citation strings that are truly relevant to the question
 
 Return ONLY the JSON, nothing else."""
 
@@ -142,58 +135,25 @@ def main() -> None:
             results.append({"query_id": qid, "predicted_citations": ""})
             continue
 
-        # Load full documents
+        # Step 2: Load full documents and refine citations
         loaded = get_documents_by_ids(doc_ids)
         loaded_map = {d.document_id: d for d in loaded}
 
-        # Step 2: Tree search within each selected document
-        all_context_parts = []
-        for doc_id in doc_ids:
-            doc = loaded_map.get(doc_id)
+        candidate_texts = ""
+        for did in doc_ids:
+            doc = loaded_map.get(did)
             if not doc:
                 continue
-
-            # Build node list (title + summary)
             tree = doc.tree_json
             structure = tree.get("structure", tree) if isinstance(tree, dict) else tree
             nodes = structure if isinstance(structure, list) else [structure]
-            node_lines = [
-                f"{n.get('node_id', '')}: {n.get('title', '')} | {n.get('summary', '')}"
-                for n in nodes
-            ]
-            node_list_text = "\n".join(node_lines[:MAX_NODE_DISPLAY])
-            if len(node_lines) > MAX_NODE_DISPLAY:
-                node_list_text += f"\n... ({len(node_lines) - MAX_NODE_DISPLAY} more nodes)"
+            text = nodes[0].get("text", "") if nodes else ""
+            candidate_texts += f"\n---\n[{doc.doc_name}]\n{text}"
 
-            node_ids = ask(TREE_SEARCH_PROMPT.format(
-                query=query,
-                doc_name=doc.doc_name,
-                doc_description=doc.doc_description,
-                node_list_text=node_list_text,
-            )).get("node_list", [])
-            if not node_ids:
-                continue
-
-            # Collect text of selected nodes
-            node_map = {n.get("node_id"): n for n in nodes}
-            for nid in node_ids:
-                node = node_map.get(nid)
-                if node and node.get("text"):
-                    all_context_parts.append(f"[{node.get('title', '')}]\n{node['text']}")
-
-        # Step 3: Extract citations
-        if not all_context_parts:
-            predicted = ";".join(
-                loaded_map[did].doc_name for did in doc_ids if did in loaded_map
-            )
-        else:
-            context = "\n\n---\n\n".join(all_context_parts)
-            if len(context) > MAX_CONTEXT_LENGTH:
-                context = context[:MAX_CONTEXT_LENGTH] + "\n...(truncated)"
-            citations = ask(CITATION_EXTRACTION_PROMPT.format(
-                query=query, context=context,
-            )).get("citations", [])
-            predicted = ";".join(citations)
+        citations = ask(CITATION_REFINEMENT_PROMPT.format(
+            query=query, candidate_texts=candidate_texts,
+        )).get("citations", [])
+        predicted = ";".join(citations)
 
         results.append({"query_id": qid, "predicted_citations": predicted})
         print(f"  → {predicted[:120]}{'...' if len(predicted) > 120 else ''}")
