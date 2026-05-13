@@ -6,4 +6,8 @@ __pycache__
 logs/
 parts/*
 json_results/*
-data
+data/court_considerations.csv
+data/laws_de.csv
+data/test.csv
+data/train.csv
+data/val.csv

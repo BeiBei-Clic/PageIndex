@@ -29,10 +29,14 @@ from pageindex.postgres_store import (
 
 
 class DocSelection(BaseModel):
+    """Document selection result in JSON format."""
+    thinking: str = Field(description="Brief reasoning for document selection")
     doc_list: list[str] = Field(description="List of selected document IDs, ordered by relevance")
 
 
 class CitationRefinement(BaseModel):
+    """Citation refinement result in JSON format."""
+    thinking: str = Field(description="Brief reasoning for citation selection")
     citations: list[str] = Field(description="List of citation strings that are truly relevant")
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -77,7 +81,11 @@ async def _process_query(idx, row, doc_selector, citation_refiner, catalog_text,
     async with semaphore:
         # Step 1: Select relevant documents
         selection: DocSelection = await doc_selector.ainvoke([
-            SystemMessage(content="Return a JSON object with a 'doc_list' field: list of doc_id strings ordered by relevance."),
+            SystemMessage(content=(
+                'Return a JSON object with:\n'
+                '- "thinking": brief reasoning for document selection\n'
+                '- "doc_list": list of selected document IDs, ordered by relevance'
+            )),
             HumanMessage(content=DOC_SELECTION_PROMPT.format(
                 query=query, catalog_text=catalog_text, top_k=MAX_DOC_SELECTION,
             )),
@@ -103,7 +111,11 @@ async def _process_query(idx, row, doc_selector, citation_refiner, catalog_text,
             candidate_texts += f"\n---\n[{doc.doc_name}]\n{text}"
 
         refinement: CitationRefinement = await citation_refiner.ainvoke([
-            SystemMessage(content="Return a JSON object with a 'citations' field: list of citation strings that are truly relevant to the question."),
+            SystemMessage(content=(
+                'Return a JSON object with:\n'
+                '- "thinking": brief reasoning for citation selection\n'
+                '- "citations": list of citation strings that are truly relevant to the question'
+            )),
             HumanMessage(content=CITATION_REFINEMENT_PROMPT.format(
                 query=query, candidate_texts=candidate_texts,
             )),
