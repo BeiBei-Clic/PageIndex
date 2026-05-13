@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from pageindex.llm import create_llm
+from pageindex.llm import DEFAULT_PROVIDER, create_llm
 
 from pageindex.postgres_store import (
     get_documents_by_ids,
@@ -178,7 +178,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Legal citation retrieval")
     parser.add_argument("--input", required=True, help="Input CSV (val.csv or test.csv)")
     parser.add_argument("--output", default=None, help="Output CSV path (default: predictions_<input_name>.csv)")
-    parser.add_argument("--provider", default="deepseek", help="LLM provider (deepseek or ai)")
+    parser.add_argument("--provider", default=DEFAULT_PROVIDER, help="LLM provider (deepseek or ai)")
     parser.add_argument("--model", default=None, help="LLM model name")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of queries")
     asyncio.run(async_main(parser.parse_args()))

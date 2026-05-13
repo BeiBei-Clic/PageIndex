@@ -95,7 +95,7 @@ python scripts/ingest_legal_data.py
 python scripts/ingest_legal_data.py --courts /dev/null
 
 #只入库前10条法条      
-python scripts/ingest_legal_data.py --laws data/laws_de.csv --limit 10
+python scripts/ingest_legal_data.py --laws data/laws_de.csv --limit 10 --concurrency 10 
 
 # 指定自定义路径
 python scripts/ingest_legal_data.py --laws data/laws_de.csv --courts data/court_considerations.csv

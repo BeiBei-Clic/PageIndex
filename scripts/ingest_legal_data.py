@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 
-from pageindex.llm import create_llm
+from pageindex.llm import DEFAULT_PROVIDER, create_llm
 
 from pageindex.postgres_store import list_catalog_documents, upsert_pageindex_document
 
@@ -25,8 +25,6 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 # ── Summary generation ──────────────────────────────────────────────────────
-
-MAX_CONCURRENT = 20
 
 PROMPT_TEMPLATE = """You are given a part of a document, your task is to generate a summary of the partial document about what are main points covered in the partial document.
 
@@ -45,7 +43,7 @@ async def _generate_summary(idx, text, llm, semaphore):
 
 # ── Ingestion ───────────────────────────────────────────────────────────────
 
-async def _ingest_csv(csv_path: str, llm, uri_prefix: str, limit=None) -> int:
+async def _ingest_csv(csv_path: str, llm, uri_prefix: str, limit=None, concurrency=20) -> int:
     """Read CSV, each row becomes one document with summary, upsert to DB."""
     with open(csv_path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -68,9 +66,9 @@ async def _ingest_csv(csv_path: str, llm, uri_prefix: str, limit=None) -> int:
 
     print(f"  {len(rows)} total, {len(todo)} new, {len(rows) - len(todo)} skipped")
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    semaphore = asyncio.Semaphore(concurrency)
     tasks = [_generate_summary(i, r.get("text", ""), llm, semaphore) for i, r in enumerate(todo, 1)]
-    print(f"  Generating summaries for {len(todo)} entries (concurrency={MAX_CONCURRENT})...")
+    print(f"  Generating summaries for {len(todo)} entries (concurrency={concurrency})...")
     summaries = await asyncio.gather(*tasks)
 
     for row, summary in zip(todo, summaries):
@@ -94,13 +92,13 @@ async def async_main(args) -> None:
 
     if Path(args.laws).exists():
         print(f"\n=== Ingesting laws from {args.laws} ===")
-        total += await _ingest_csv(args.laws, llm, "laws", args.limit)
+        total += await _ingest_csv(args.laws, llm, "laws", args.limit, args.concurrency)
     else:
         print(f"Warning: {args.laws} not found, skipping laws.")
 
     if Path(args.courts).exists():
         print(f"\n=== Ingesting court decisions from {args.courts} ===")
-        total += await _ingest_csv(args.courts, llm, "courts", args.limit)
+        total += await _ingest_csv(args.courts, llm, "courts", args.limit, args.concurrency)
     else:
         print(f"Warning: {args.courts} not found, skipping courts.")
 
@@ -111,9 +109,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest legal data into PageIndex")
     parser.add_argument("--laws", default="data/laws_de.csv", help="Path to laws CSV")
     parser.add_argument("--courts", default="data/court_considerations.csv", help="Path to court considerations CSV")
-    parser.add_argument("--provider", default="deepseek", help="LLM provider (deepseek or ai)")
+    parser.add_argument("--provider", default=DEFAULT_PROVIDER, help="LLM provider (deepseek or ai)")
     parser.add_argument("--model", default=None, help="LLM model for summaries")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of rows to ingest")
+    parser.add_argument("--concurrency", type=int, default=20, help="Max concurrent LLM requests")
     asyncio.run(async_main(parser.parse_args()))
 
 

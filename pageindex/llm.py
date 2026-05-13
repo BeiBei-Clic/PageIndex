@@ -2,20 +2,24 @@
 
 from langchain.chat_models import init_chat_model
 
+DEFAULT_PROVIDER = "ppx"
+
 PROVIDERS = {
     "deepseek": {
         "model_provider": "deepseek",
         "default_model": "deepseek-v4-flash",
     },
-    "ai": {
+    "ppx": {
         "model_provider": "openai",
         "base_url": "https://api.psydo.top/v1",
-        "default_model": "gpt-5.5",
+        "default_model": "gpt-5.1",
     },
 }
 
 
-def create_llm(provider="deepseek", model=None, temperature=0):
+def create_llm(provider=None, model=None, temperature=0):
+    if provider is None:
+        provider = DEFAULT_PROVIDER
     cfg = PROVIDERS[provider]
     kwargs = {
         "model": model or cfg["default_model"],
