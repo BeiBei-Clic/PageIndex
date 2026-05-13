@@ -18,9 +18,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
+
+from pageindex.llm import create_llm
 
 from pageindex.postgres_store import (
     get_documents_by_ids,
@@ -43,7 +44,6 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "deepseek-v4-flash"
 MAX_DOC_SELECTION = 40
 MAX_CONCURRENT = 5
 
@@ -145,7 +145,7 @@ async def async_main(args) -> None:
     print(f"  {len(queries)} queries to process")
 
     # Init LLM
-    llm = init_chat_model(f"deepseek:{args.model}", temperature=0)
+    llm = create_llm(args.provider, args.model)
     doc_selector = llm.with_structured_output(DocSelection, method="json_mode")
     citation_refiner = llm.with_structured_output(CitationRefinement, method="json_mode")
 
@@ -178,7 +178,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Legal citation retrieval")
     parser.add_argument("--input", required=True, help="Input CSV (val.csv or test.csv)")
     parser.add_argument("--output", default=None, help="Output CSV path (default: predictions_<input_name>.csv)")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="LLM model name")
+    parser.add_argument("--provider", default="deepseek", help="LLM provider (deepseek or ai)")
+    parser.add_argument("--model", default=None, help="LLM model name")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of queries")
     asyncio.run(async_main(parser.parse_args()))
 

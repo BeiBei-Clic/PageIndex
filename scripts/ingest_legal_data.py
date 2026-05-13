@@ -15,8 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
+
+from pageindex.llm import create_llm
 
 from pageindex.postgres_store import list_catalog_documents, upsert_pageindex_document
 
@@ -88,7 +89,7 @@ async def _ingest_csv(csv_path: str, llm, uri_prefix: str, limit=None) -> int:
 # ── Main ────────────────────────────────────────────────────────────────────
 
 async def async_main(args) -> None:
-    llm = init_chat_model(f"deepseek:{args.model}", temperature=0)
+    llm = create_llm(args.provider, args.model)
     total = 0
 
     if Path(args.laws).exists():
@@ -110,7 +111,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest legal data into PageIndex")
     parser.add_argument("--laws", default="data/laws_de.csv", help="Path to laws CSV")
     parser.add_argument("--courts", default="data/court_considerations.csv", help="Path to court considerations CSV")
-    parser.add_argument("--model", default="deepseek-v4-flash", help="LLM model for summaries")
+    parser.add_argument("--provider", default="deepseek", help="LLM provider (deepseek or ai)")
+    parser.add_argument("--model", default=None, help="LLM model for summaries")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of rows to ingest")
     asyncio.run(async_main(parser.parse_args()))
 
