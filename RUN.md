@@ -110,7 +110,7 @@ python scripts/ingest_legal_data.py --laws data/laws_de.csv --courts data/court_
 python scripts/run_legal_retrieval.py --input data/val.csv
 
 # 对 test 集检索
-python scripts/run_legal_retrieval.py --input data/test.csv --output submissions/test_submission.csv
+python scripts/run_legal_retrieval.py --input data/val.csv --output submissions/val_submission.csv
 
 # 限制前 2 条快速测试
 python scripts/run_legal_retrieval.py --input data/val.csv --limit 2

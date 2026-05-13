@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage
 
-from pageindex.postgres_store import upsert_pageindex_document
+from pageindex.postgres_store import list_catalog_documents, upsert_pageindex_document
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -51,12 +51,28 @@ async def _ingest_csv(csv_path: str, llm, uri_prefix: str, limit=None) -> int:
     if limit:
         rows = rows[:limit]
 
+    # Query existing source_paths to skip already-ingested docs
+    existing_doc_names = {d.doc_name for d in list_catalog_documents()}
+
+    todo = []
+    for r in rows:
+        if r["citation"] in existing_doc_names:
+            print(f"  Skip (already exists): {r['citation']}", flush=True)
+        else:
+            todo.append(r)
+
+    if not todo:
+        print(f"  All {len(rows)} entries already ingested, nothing to do.")
+        return 0
+
+    print(f"  {len(rows)} total, {len(todo)} new, {len(rows) - len(todo)} skipped")
+
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
-    tasks = [_generate_summary(i, r.get("text", ""), llm, semaphore) for i, r in enumerate(rows, 1)]
-    print(f"  Generating summaries for {len(rows)} entries (concurrency={MAX_CONCURRENT})...")
+    tasks = [_generate_summary(i, r.get("text", ""), llm, semaphore) for i, r in enumerate(todo, 1)]
+    print(f"  Generating summaries for {len(todo)} entries (concurrency={MAX_CONCURRENT})...")
     summaries = await asyncio.gather(*tasks)
 
-    for row, summary in zip(rows, summaries):
+    for row, summary in zip(todo, summaries):
         citation = row["citation"]
         text = row.get("text", "")
         tree = {
@@ -66,7 +82,7 @@ async def _ingest_csv(csv_path: str, llm, uri_prefix: str, limit=None) -> int:
         }
         upsert_pageindex_document(f"legal://{uri_prefix}/{citation}", "md", tree)
 
-    return len(rows)
+    return len(todo)
 
 
 # ── Main ────────────────────────────────────────────────────────────────────

@@ -31,7 +31,7 @@ from pageindex.postgres_store import (
 class DocSelection(BaseModel):
     """Document selection result in JSON format."""
     thinking: str = Field(description="Brief reasoning for document selection")
-    doc_list: list[str] = Field(description="List of selected document IDs, ordered by relevance")
+    doc_list: list[str] = Field(description="List of selected document names, ordered by relevance")
 
 
 class CitationRefinement(BaseModel):
@@ -44,7 +44,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 # ── Config ───────────────────────────────────────────────────────────────────
 
 DEFAULT_MODEL = "deepseek-v4-flash"
-MAX_DOC_SELECTION = 20
+MAX_DOC_SELECTION = 40
 MAX_CONCURRENT = 5
 
 # ── Prompts ──────────────────────────────────────────────────────────────────
@@ -55,7 +55,7 @@ Given a legal question, select the most relevant law codes and BGE court decisio
 
 Question: {query}
 
-Document catalog (doc_id | name | description):
+Document catalog (name | description):
 {catalog_text}
 
 Select up to {top_k} documents ordered by relevance."""
@@ -72,7 +72,7 @@ Candidate texts:
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-async def _process_query(idx, row, doc_selector, citation_refiner, catalog_text, semaphore):
+async def _process_query(idx, row, doc_selector, citation_refiner, catalog_text, name_to_id, semaphore):
     """Process a single query: doc selection → citation refinement."""
     qid = row["query_id"]
     query = row["query"]
@@ -84,13 +84,13 @@ async def _process_query(idx, row, doc_selector, citation_refiner, catalog_text,
             SystemMessage(content=(
                 'Return a JSON object with:\n'
                 '- "thinking": brief reasoning for document selection\n'
-                '- "doc_list": list of selected document IDs, ordered by relevance'
+                '- "doc_list": list of selected document names, ordered by relevance'
             )),
             HumanMessage(content=DOC_SELECTION_PROMPT.format(
                 query=query, catalog_text=catalog_text, top_k=MAX_DOC_SELECTION,
             )),
         ])
-        doc_ids = selection.doc_list
+        doc_ids = [name_to_id[name] for name in selection.doc_list if name in name_to_id]
         if not doc_ids:
             print(f"  [{idx}] → (no docs selected)", flush=True)
             return {"query_id": qid, "predicted_citations": ""}
@@ -151,14 +151,15 @@ async def async_main(args) -> None:
 
     # Pre-build catalog text for doc selection
     catalog_text = "\n".join(
-        f"{d.document_id} | {d.doc_name} | {d.doc_description[:120]}"
+        f"{d.doc_name} | {d.doc_description[:120]}"
         for d in catalog
     )
+    name_to_id = {d.doc_name: d.document_id for d in catalog}
 
     # Process queries concurrently
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
     tasks = [
-        _process_query(i, row, doc_selector, citation_refiner, catalog_text, semaphore)
+        _process_query(i, row, doc_selector, citation_refiner, catalog_text, name_to_id, semaphore)
         for i, row in enumerate(queries, 1)
     ]
     print(f"\nProcessing {len(queries)} queries (concurrency={MAX_CONCURRENT})...")
